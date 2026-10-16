@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const studentController_1 = require("../controllers/studentController");
+const guardianController_1 = require("../controllers/guardianController");
+const auth_1 = require("../middleware/auth");
+const role_1 = require("../middleware/role");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate, role_1.requireTeacherOrAdmin);
+router.get('/', studentController_1.getStudents);
+router.post('/', studentController_1.createStudent);
+router.get('/:id', studentController_1.getStudentById);
+router.patch('/:id', studentController_1.updateStudent);
+router.patch('/:id/status', studentController_1.toggleStudentStatus);
+router.get('/:id/attendance', studentController_1.getStudentAttendance);
+// Guardian linking sub-routes
+router.post('/:id/guardians', guardianController_1.linkGuardianToStudent);
+router.patch('/:id/guardians/:guardianId', guardianController_1.updateStudentGuardianLink);
+router.delete('/:id/guardians/:guardianId', guardianController_1.unlinkGuardianFromStudent);
+exports.default = router;

@@ -1,0 +1,43 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const authRoutes_1 = __importDefault(require("./authRoutes"));
+const userRoutes_1 = __importDefault(require("./userRoutes"));
+const classRoutes_1 = __importDefault(require("./classRoutes"));
+const studentRoutes_1 = __importDefault(require("./studentRoutes"));
+const guardianRoutes_1 = __importDefault(require("./guardianRoutes"));
+const enrollmentRoutes_1 = __importDefault(require("./enrollmentRoutes"));
+const attendanceRoutes_1 = __importDefault(require("./attendanceRoutes"));
+const notificationRoutes_1 = __importDefault(require("./notificationRoutes"));
+const reportRoutes_1 = __importDefault(require("./reportRoutes"));
+const dashboardRoutes_1 = __importDefault(require("./dashboardRoutes"));
+const auditRoutes_1 = __importDefault(require("./auditRoutes"));
+const lessonRoutes_1 = __importDefault(require("./lessonRoutes"));
+const assignmentRoutes_1 = __importDefault(require("./assignmentRoutes"));
+const examRoutes_1 = __importDefault(require("./examRoutes"));
+const announcementRoutes_1 = __importDefault(require("./announcementRoutes"));
+const parentRoutes_1 = __importDefault(require("./parentRoutes"));
+const studentPortalRoutes_1 = __importDefault(require("./studentPortalRoutes"));
+const apiRouter = (0, express_1.Router)();
+apiRouter.use('/auth', authRoutes_1.default);
+apiRouter.use('/users', userRoutes_1.default);
+apiRouter.use('/classes', classRoutes_1.default);
+apiRouter.use('/students', studentRoutes_1.default);
+apiRouter.use('/guardians', guardianRoutes_1.default);
+apiRouter.use('/enrollments', enrollmentRoutes_1.default);
+apiRouter.use('/', attendanceRoutes_1.default); // provides /sessions and /attendance
+apiRouter.use('/notifications', notificationRoutes_1.default);
+apiRouter.use('/reports', reportRoutes_1.default);
+apiRouter.use('/dashboard', dashboardRoutes_1.default);
+apiRouter.use('/audit-logs', auditRoutes_1.default);
+// LMS Learning, Assessment, and Role Portals
+apiRouter.use('/lessons', lessonRoutes_1.default);
+apiRouter.use('/assignments', assignmentRoutes_1.default);
+apiRouter.use('/exams', examRoutes_1.default);
+apiRouter.use('/announcements', announcementRoutes_1.default);
+apiRouter.use('/parent', parentRoutes_1.default);
+apiRouter.use('/student', studentPortalRoutes_1.default);
+exports.default = apiRouter;

@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const studentPortalController_1 = require("../controllers/studentPortalController");
+const auth_1 = require("../middleware/auth");
+const role_1 = require("../middleware/role");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate, (0, role_1.requireRoles)(['STUDENT']));
+router.get('/overview', studentPortalController_1.getStudentPortalOverview);
+exports.default = router;

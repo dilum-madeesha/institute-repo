@@ -1,0 +1,13 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const reportController_1 = require("../controllers/reportController");
+const auth_1 = require("../middleware/auth");
+const role_1 = require("../middleware/role");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate, role_1.requireTeacherOrAdmin);
+router.get('/summary', reportController_1.getAttendanceSummaryReport);
+router.get('/absences', reportController_1.getAbsenceListReport);
+router.get('/missing-guardians', reportController_1.getMissingGuardiansReport);
+router.get('/export-csv', reportController_1.exportReportCsv);
+exports.default = router;

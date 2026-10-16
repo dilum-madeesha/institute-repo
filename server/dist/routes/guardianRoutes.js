@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const guardianController_1 = require("../controllers/guardianController");
+const auth_1 = require("../middleware/auth");
+const role_1 = require("../middleware/role");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticate, role_1.requireTeacherOrAdmin);
+router.get('/', guardianController_1.getGuardians);
+router.post('/', guardianController_1.createGuardian);
+router.patch('/:id', guardianController_1.updateGuardian);
+exports.default = router;
