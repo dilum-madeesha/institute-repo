@@ -9,6 +9,7 @@ import { generalLimiter } from './middleware/rateLimiter';
 import { startNotificationWorker } from './services/notificationWorker';
 import { initEmailTransporter } from './services/emailService';
 import { startAttendanceWindowWorker } from './services/attendanceWindow';
+import { startAssignmentPublicationWorker } from './services/assignmentPublicationWorker';
 
 const app = express();
 
@@ -45,6 +46,7 @@ const startServer = async () => {
   await initEmailTransporter();
   startNotificationWorker();
   startAttendanceWindowWorker();
+  startAssignmentPublicationWorker();
 
   app.listen(ENV.PORT, () => {
     console.log(`[Server] Institute LMS Server running on http://localhost:${ENV.PORT} in ${ENV.NODE_ENV} mode`);

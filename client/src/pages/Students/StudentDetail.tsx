@@ -15,7 +15,7 @@ import {
   Clock,
   PieChart,
 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { Student, Guardian } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -46,8 +46,8 @@ export const StudentDetail: React.FC = () => {
     try {
       setLoading(true);
       const [studentRes, attendanceRes] = await Promise.all([
-        api.get(`/students/${id}`),
-        api.get(`/students/${id}/attendance`),
+        apiService.getStudent(id!),
+        apiService.getStudentAttendance(id!),
       ]);
       setStudent(studentRes.data);
       setAttendanceRecords(attendanceRes.data);
@@ -60,7 +60,7 @@ export const StudentDetail: React.FC = () => {
 
   const fetchGuardians = async () => {
     try {
-      const res = await api.get('/guardians');
+      const res = await apiService.getGuardians();
       setAvailableGuardians(res.data);
     } catch (err) {
       console.error('Failed to load guardians:', err);
@@ -85,7 +85,7 @@ export const StudentDetail: React.FC = () => {
       let gId = selectedGuardianId;
 
       if (guardianMode === 'new') {
-        const createRes = await api.post('/guardians', {
+        const createRes = await apiService.createGuardian({
           fullName: newGuardianName,
           email: newGuardianEmail,
           phone: newGuardianPhone,
@@ -98,7 +98,7 @@ export const StudentDetail: React.FC = () => {
         return;
       }
 
-      await api.post(`/students/${id}/guardians`, {
+      await apiService.addStudentGuardian(id!, {
         guardianId: gId,
         relationship,
         receivesAttendanceEmails: receivesEmails,
@@ -118,7 +118,7 @@ export const StudentDetail: React.FC = () => {
 
   const handleToggleEmailPreference = async (guardianId: string, current: boolean) => {
     try {
-      await api.patch(`/students/${id}/guardians/${guardianId}`, {
+      await apiService.updateStudentGuardian(id!, guardianId, {
         receivesAttendanceEmails: !current,
       });
       fetchStudentData();
@@ -131,7 +131,7 @@ export const StudentDetail: React.FC = () => {
     if (!window.confirm('Are you sure you want to unlink this guardian?')) return;
 
     try {
-      await api.delete(`/students/${id}/guardians/${guardianId}`);
+      await apiService.removeStudentGuardian(id!, guardianId);
       fetchStudentData();
     } catch (err) {
       console.error('Failed to unlink guardian:', err);
@@ -140,7 +140,7 @@ export const StudentDetail: React.FC = () => {
 
   const handleToggleStudentStatus = async () => {
     try {
-      await api.patch(`/students/${id}/status`);
+      await apiService.toggleStudentStatus(id!);
       fetchStudentData();
     } catch (err) {
       console.error('Failed to toggle status:', err);

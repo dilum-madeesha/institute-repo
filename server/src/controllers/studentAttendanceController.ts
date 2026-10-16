@@ -9,19 +9,24 @@ import {
   getAttendanceWindowState,
 } from '../services/attendanceWindow';
 import { logAudit } from '../services/auditService';
+import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export const getStudentAttendanceSessions = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = req.user!;
     if (!user.studentId) {
-      res.status(403).json({ error: 'Student profile is not linked to this account.' });
+      res.status(403).json({
+        error: 'This student login is not linked to a student profile. Ask an administrator to match the account email to the student profile or set the student login password again.',
+        code: 'STUDENT_PROFILE_NOT_LINKED',
+      });
       return;
     }
 
     await finalizeExpiredAttendanceSessions();
-    const enrollments = await Enrollment.find({ studentId: user.studentId, status: 'ACTIVE' }).populate({
+    const enrollments = await Enrollment.find(currentEnrollmentFilter(user.studentId)).populate({
       path: 'classId',
-      select: 'name classCode',
+      select: 'name classCode subject teachers',
+      populate: { path: 'teachers', select: 'fullName' },
     });
     const classes = enrollments
       .map((enrollment) => enrollment.classId as any)
@@ -34,7 +39,10 @@ export const getStudentAttendanceSessions = async (req: AuthRequest, res: Respon
     }
 
     const classById = new Map(classes.map((classItem) => [classItem._id.toString(), classItem]));
-    const sessions = await ClassSession.find({ classId: { $in: classIds } })
+    const sessions = await ClassSession.find({
+      classId: { $in: classIds },
+      $or: [{ isPublished: true }, { isPublished: { $exists: false } }],
+    })
       .sort({ sessionDate: -1, createdAt: -1 })
       .limit(50);
     const records = await AttendanceRecord.find({
@@ -55,10 +63,17 @@ export const getStudentAttendanceSessions = async (req: AuthRequest, res: Respon
           endTime: session.endTime,
           timeZone: session.timeZone,
           status: session.status,
+          isPublished: session.isPublished,
           submittedAt: session.submittedAt,
           autoFinalizedAt: session.autoFinalizedAt,
           class: classItem
-            ? { _id: classItem._id, name: classItem.name, classCode: classItem.classCode }
+            ? {
+                _id: classItem._id,
+                name: classItem.name,
+                classCode: classItem.classCode,
+                subject: classItem.subject,
+                teachers: classItem.teachers,
+              }
             : null,
           attendance: record
             ? { status: record.status, arrivalTime: record.arrivalTime, markedAt: record.markedAt }
@@ -79,7 +94,10 @@ export const checkInStudentAttendance = async (req: AuthRequest, res: Response):
   try {
     const user = req.user!;
     if (!user.studentId) {
-      res.status(403).json({ error: 'Student profile is not linked to this account.' });
+      res.status(403).json({
+        error: 'This student login is not linked to a student profile. Ask an administrator to match the account email to the student profile or set the student login password again.',
+        code: 'STUDENT_PROFILE_NOT_LINKED',
+      });
       return;
     }
 
@@ -88,18 +106,17 @@ export const checkInStudentAttendance = async (req: AuthRequest, res: Response):
       res.status(404).json({ error: 'Attendance session not found.' });
       return;
     }
+    if (session.isPublished === false) {
+      res.status(404).json({ error: 'Published attendance session not found.' });
+      return;
+    }
     if (session.status !== 'DRAFT') {
       res.status(409).json({ error: 'This attendance session has already been finalized.' });
       return;
     }
 
-    const enrollment = await Enrollment.findOne({
-      studentId: user.studentId,
-      classId: session.classId,
-      status: 'ACTIVE',
-      startDate: { $lte: session.sessionDate },
-      $or: [{ endDate: null }, { endDate: { $gte: session.sessionDate } }],
-    });
+    const now = new Date();
+    const enrollment = await Enrollment.findOne(currentEnrollmentFilter(user.studentId, session.classId));
     if (!enrollment) {
       res.status(403).json({ error: 'You are not actively enrolled in this class.' });
       return;
@@ -125,7 +142,6 @@ export const checkInStudentAttendance = async (req: AuthRequest, res: Response):
       return;
     }
 
-    const now = new Date();
     const { start, end } = getAttendanceWindow(session);
     if (now < start) {
       res.status(409).json({ error: 'Attendance check-in is not open yet.' });

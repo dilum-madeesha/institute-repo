@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Award, Plus, Search, Calendar, Clock, CheckCircle2, AlertCircle, School, Check, FileQuestion, Users } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { Examination, ClassItem } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -12,6 +12,7 @@ export const ExamPortal: React.FC = () => {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
   // Create Exam Modal
@@ -38,17 +39,30 @@ export const ExamPortal: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const classesRes = await api.get('/classes?status=ACTIVE');
+      setLoadError('');
+      const classesRes = await apiService.getClasses({ status: 'ACTIVE' });
+      if (!Array.isArray(classesRes.data)) {
+        throw new Error('The class list response was invalid. Refresh the page or contact an administrator.');
+      }
       setClasses(classesRes.data);
 
-      const targetClass = selectedClassId || (classesRes.data.length > 0 ? classesRes.data[0]._id : '');
-      if (targetClass) {
-        setSelectedClassId(targetClass);
-        const examsRes = await api.get(`/exams/class/${targetClass}`);
-        setExams(examsRes.data);
+      const targetClass = classesRes.data.some((item: ClassItem) => item._id === selectedClassId)
+        ? selectedClassId
+        : classesRes.data[0]?._id || '';
+      setSelectedClassId(targetClass);
+      if (!targetClass) {
+        setExams([]);
+        return;
       }
-    } catch (err) {
+      const examsRes = await apiService.getClassExams(targetClass);
+      if (!Array.isArray(examsRes.data)) {
+        throw new Error('The exam list response was invalid. Refresh the page or contact an administrator.');
+      }
+      setExams(examsRes.data);
+    } catch (err: any) {
       console.error('Failed to load exams:', err);
+      setLoadError(err.response?.data?.error || err.message || 'Failed to load exams. Please try again.');
+      setExams([]);
     } finally {
       setLoading(false);
     }
@@ -62,7 +76,7 @@ export const ExamPortal: React.FC = () => {
     e.preventDefault();
     try {
       setIsSubmitting(true);
-      await api.post('/exams', {
+      await apiService.createExam({
         classId: examClassId || selectedClassId,
         title: examTitle,
         description: examDesc,
@@ -89,7 +103,7 @@ export const ExamPortal: React.FC = () => {
       setOptC('');
       setOptD('');
       if (selectedClassId) {
-        const res = await api.get(`/exams/class/${selectedClassId}`);
+        const res = await apiService.getClassExams(selectedClassId);
         setExams(res.data);
       }
     } catch (err) {
@@ -101,7 +115,7 @@ export const ExamPortal: React.FC = () => {
 
   const handleStartExam = async (examId: string) => {
     try {
-      const res = await api.get(`/exams/${examId}/take`);
+      const res = await apiService.getExamForTaking(examId);
       setActiveExam(res.data);
       setAnswers({});
       setExamResult(null);
@@ -122,13 +136,13 @@ export const ExamPortal: React.FC = () => {
         answerText: ans,
       }));
 
-      const res = await api.post(`/exams/${activeExam._id}/submit`, {
+      const res = await apiService.submitExam(activeExam._id, {
         answers: formattedAnswers,
       });
 
       setExamResult(res.data);
       if (selectedClassId) {
-        const exRes = await api.get(`/exams/class/${selectedClassId}`);
+        const exRes = await apiService.getClassExams(selectedClassId);
         setExams(exRes.data);
       }
     } catch (err: any) {
@@ -169,6 +183,15 @@ export const ExamPortal: React.FC = () => {
         )}
       </div>
 
+      {loadError && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {loadError}
+          <button type="button" onClick={() => void fetchData()} className="ml-2 font-semibold underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Class Pills */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-none">
         {classes.map((cls) => {
@@ -189,6 +212,13 @@ export const ExamPortal: React.FC = () => {
           );
         })}
       </div>
+
+      {!loading && !loadError && classes.length === 0 && isStudent && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          No active class enrollment is linked to this student account. Exams are shown only for currently enrolled
+          classes. Ask an administrator to verify your student profile and enrollment dates.
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-3">

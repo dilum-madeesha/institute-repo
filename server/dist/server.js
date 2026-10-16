@@ -13,6 +13,8 @@ const errorHandler_1 = require("./middleware/errorHandler");
 const rateLimiter_1 = require("./middleware/rateLimiter");
 const notificationWorker_1 = require("./services/notificationWorker");
 const emailService_1 = require("./services/emailService");
+const attendanceWindow_1 = require("./services/attendanceWindow");
+const assignmentPublicationWorker_1 = require("./services/assignmentPublicationWorker");
 const app = (0, express_1.default)();
 // Security middlewares
 app.use((0, helmet_1.default)());
@@ -39,6 +41,8 @@ const startServer = async () => {
     await (0, db_1.connectDB)();
     await (0, emailService_1.initEmailTransporter)();
     (0, notificationWorker_1.startNotificationWorker)();
+    (0, attendanceWindow_1.startAttendanceWindowWorker)();
+    (0, assignmentPublicationWorker_1.startAssignmentPublicationWorker)();
     app.listen(env_1.ENV.PORT, () => {
         console.log(`[Server] Institute LMS Server running on http://localhost:${env_1.ENV.PORT} in ${env_1.ENV.NODE_ENV} mode`);
     });

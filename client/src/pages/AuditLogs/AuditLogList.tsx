@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Search, Filter, RefreshCw } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { AuditLog } from '../../types';
 
 export const AuditLogList: React.FC = () => {
@@ -16,7 +16,7 @@ export const AuditLogList: React.FC = () => {
       if (actionFilter) params.action = actionFilter;
       if (entityFilter) params.entityType = entityFilter;
 
-      const res = await api.get('/audit-logs', { params });
+      const res = await apiService.getAuditLogs(params);
       setLogs(res.data);
     } catch (err) {
       console.error('Failed to load audit logs:', err);

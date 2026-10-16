@@ -41,19 +41,35 @@ const LessonSchema = new mongoose_1.Schema({
     description: { type: String, trim: true, default: '' },
     videoUrl: { type: String, trim: true, default: '' },
     duration: { type: String, trim: true, default: '' },
+    chapter: { type: String, trim: true, default: '' },
+    topic: { type: String, trim: true, default: '' },
     attachments: [
         {
             name: { type: String, required: true },
             fileUrl: { type: String, required: true },
             fileType: { type: String, default: 'PDF' },
             fileSize: { type: String },
+            fileId: { type: String },
+            storageKey: { type: String },
+            originalName: { type: String },
+            mimeType: { type: String },
+            size: { type: Number, min: 0 },
         },
     ],
     order: { type: Number, default: 0 },
     isPublished: { type: Boolean, default: true, index: true },
+    publicationStatus: {
+        type: String,
+        enum: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
+        default: 'PUBLISHED',
+        index: true,
+    },
+    publishedAt: { type: Date, default: null },
+    archivedAt: { type: Date, default: null },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
 }, {
     timestamps: true,
 });
 LessonSchema.index({ classId: 1, order: 1 });
+LessonSchema.index({ classId: 1, publicationStatus: 1, order: 1 });
 exports.Lesson = mongoose_1.default.model('Lesson', LessonSchema);

@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { Examination } from '../models/Examination';
 import { ExamSubmission } from '../models/ExamSubmission';
 import { AuthRequest } from '../middleware/auth';
@@ -93,6 +94,14 @@ export const createExam = async (req: AuthRequest, res: Response): Promise<void>
       res.status(400).json({ error: 'Class ID, title, and exam date are required.' });
       return;
     }
+    if (!mongoose.isValidObjectId(classId)) {
+      res.status(400).json({ error: 'A valid class is required.' });
+      return;
+    }
+    if (!(await canAccessClass(req.user!._id.toString(), req.user!.role, classId))) {
+      res.status(403).json({ error: 'You can create exams only for classes assigned to you.' });
+      return;
+    }
 
     const exam = await Examination.create({
       classId,
@@ -127,6 +136,21 @@ export const getExamForTaking = async (req: AuthRequest, res: Response): Promise
 
     if (!exam) {
       res.status(404).json({ error: 'Exam not found' });
+      return;
+    }
+    if (!exam.isPublished) {
+      res.status(404).json({ error: 'Published exam not found.' });
+      return;
+    }
+    const hasAccess = await canAccessClass(
+      req.user!._id.toString(),
+      req.user!.role,
+      exam.classId.toString(),
+      req.user!.studentId?.toString(),
+      req.user!.guardianId?.toString()
+    );
+    if (!hasAccess) {
+      res.status(403).json({ error: 'You are not authorized to access this exam.' });
       return;
     }
 
@@ -167,6 +191,20 @@ export const submitExam = async (req: AuthRequest, res: Response): Promise<void>
     const exam = await Examination.findById(examId);
     if (!exam) {
       res.status(404).json({ error: 'Exam not found' });
+      return;
+    }
+    if (!exam.isPublished) {
+      res.status(404).json({ error: 'Published exam not found.' });
+      return;
+    }
+    if (!(await canAccessClass(
+      user._id.toString(),
+      user.role,
+      exam.classId.toString(),
+      user.studentId?.toString(),
+      user.guardianId?.toString()
+    ))) {
+      res.status(403).json({ error: 'You are not authorized to submit answers for this exam.' });
       return;
     }
 

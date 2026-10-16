@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, Plus, Search, Mail, Phone, GraduationCap, Edit2, Trash2 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { Guardian } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -29,7 +29,7 @@ export const GuardianList: React.FC = () => {
       setLoading(true);
       const params: any = {};
       if (search) params.search = search;
-      const res = await api.get('/guardians', { params });
+      const res = await apiService.getGuardians(params);
       setGuardians(res.data);
     } catch (err) {
       console.error('Failed to load guardians:', err);
@@ -67,9 +67,9 @@ export const GuardianList: React.FC = () => {
 
     try {
       if (editingId) {
-        await api.patch(`/guardians/${editingId}`, { fullName, email, phone });
+        await apiService.updateGuardian(editingId, { fullName, email, phone });
       } else {
-        await api.post('/guardians', { fullName, email, phone });
+        await apiService.createGuardian({ fullName, email, phone });
       }
 
       setModalOpen(false);
@@ -93,7 +93,7 @@ export const GuardianList: React.FC = () => {
     setDeleteError('');
     setDeletingGuardianId(guardian._id);
     try {
-      await api.delete(`/guardians/${guardian._id}`);
+      await apiService.deleteGuardian(guardian._id);
       setGuardians((currentGuardians) =>
         currentGuardians.filter((currentGuardian) => currentGuardian._id !== guardian._id)
       );

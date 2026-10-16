@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CalendarCheck, CheckCircle2, Clock, RefreshCw } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { AttendanceStatus } from '../../types';
 
 interface StudentAttendanceSession {
@@ -13,7 +13,7 @@ interface StudentAttendanceSession {
   status: 'DRAFT' | 'SUBMITTED' | 'LOCKED';
   autoFinalizedAt?: string | null;
   checkInState: 'UPCOMING' | 'OPEN' | 'CLOSED' | 'FINALIZED';
-  class: { _id: string; name: string; classCode: string } | null;
+  class: { _id: string; name: string; classCode: string; subject?: string; teachers?: Array<{ fullName: string }> } | null;
   attendance: { status: AttendanceStatus; arrivalTime?: string; markedAt?: string } | null;
 }
 
@@ -29,7 +29,7 @@ export const StudentAttendance: React.FC = () => {
     try {
       if (showLoading) setLoading(true);
       setError('');
-      const response = await api.get('/student/attendance/sessions');
+      const response = await apiService.getStudentAttendanceSessions();
       setSessions(response.data);
     } catch (err: any) {
       console.error('Failed to load student attendance sessions:', err);
@@ -51,7 +51,7 @@ export const StudentAttendance: React.FC = () => {
       setCheckingIn(session._id);
       setError('');
       setMessage('');
-      await api.post(`/student/attendance/sessions/${session._id}/check-in`);
+      await apiService.checkInStudentAttendance(session._id);
       setMessage(`Your attendance for ${session.class?.name || 'this class'} was recorded.`);
       await loadSessions();
     } catch (err: any) {
@@ -75,7 +75,9 @@ export const StudentAttendance: React.FC = () => {
 
   const getWindowLabel = (session: StudentAttendanceSession) => {
     if (session.attendance) {
-      return `${session.attendance.status === 'LATE' ? 'Checked in late' : 'Checked in'}${session.attendance.arrivalTime ? ` at ${session.attendance.arrivalTime}` : ''}`;
+      if (session.attendance.status === 'ABSENT') return 'Marked absent';
+      if (session.attendance.status === 'EXCUSED') return 'Absence excused';
+      return `${session.attendance.status === 'LATE' ? 'Checked in late' : 'Present'}${session.attendance.arrivalTime ? ` at ${session.attendance.arrivalTime}` : ''}`;
     }
     if (session.checkInState === 'UPCOMING') return 'Check-in opens at session start';
     if (session.checkInState === 'OPEN') return 'Check-in is open';
@@ -116,8 +118,11 @@ export const StudentAttendance: React.FC = () => {
       ) : sessions.length === 0 ? (
         <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center">
           <CalendarCheck className="mx-auto mb-3 h-12 w-12 text-slate-300" />
-          <h2 className="text-base font-semibold text-slate-700">No attendance sessions yet</h2>
-          <p className="mt-1 text-sm text-slate-400">Sessions for your enrolled classes will appear here.</p>
+          <h2 className="text-base font-semibold text-slate-700">No attendance sessions available</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Sessions appear here after staff publish them for your currently enrolled classes. If you expect a session,
+            ask an administrator to verify your student account link and active enrollment.
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -130,6 +135,7 @@ export const StudentAttendance: React.FC = () => {
                       {session.class?.name || 'Class'}
                       {session.class?.classCode ? ` · ${session.class.classCode}` : ''}
                     </p>
+                    {session.class?.subject && <p className="mt-1 text-xs text-slate-500">{session.class.subject}</p>}
                     <h2 className="mt-1 text-lg font-bold text-slate-900">{session.title || 'Attendance Session'}</h2>
                   </div>
                   {session.attendance ? (

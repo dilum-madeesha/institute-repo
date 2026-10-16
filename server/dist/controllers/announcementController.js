@@ -6,6 +6,7 @@ const Enrollment_1 = require("../models/Enrollment");
 const StudentGuardian_1 = require("../models/StudentGuardian");
 const Class_1 = require("../models/Class");
 const auditService_1 = require("../services/auditService");
+const enrollmentAccess_1 = require("../services/enrollmentAccess");
 const getAnnouncements = async (req, res) => {
     try {
         const user = req.user;
@@ -23,13 +24,13 @@ const getAnnouncements = async (req, res) => {
             allowedClassIds = classes.map((c) => c._id);
         }
         else if (user.role === 'STUDENT' && user.studentId) {
-            const enrollments = await Enrollment_1.Enrollment.find({ studentId: user.studentId, status: 'ACTIVE' });
+            const enrollments = await Enrollment_1.Enrollment.find((0, enrollmentAccess_1.currentEnrollmentFilter)(user.studentId));
             allowedClassIds = enrollments.map((e) => e.classId);
         }
         else if (user.role === 'PARENT' && user.guardianId) {
             const links = await StudentGuardian_1.StudentGuardian.find({ guardianId: user.guardianId });
             const childIds = links.map((l) => l.studentId);
-            const enrollments = await Enrollment_1.Enrollment.find({ studentId: { $in: childIds }, status: 'ACTIVE' });
+            const enrollments = await Enrollment_1.Enrollment.find((0, enrollmentAccess_1.currentEnrollmentFilter)({ $in: childIds }));
             allowedClassIds = enrollments.map((e) => e.classId);
         }
         // Match announcements that are either school-wide (classId = null) OR in allowed classes

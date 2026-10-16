@@ -3,9 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetUserPassword = exports.toggleUserStatus = exports.updateUser = exports.createUser = exports.getUserById = exports.getUsers = void 0;
+exports.deleteTeacher = exports.resetUserPassword = exports.toggleUserStatus = exports.updateUser = exports.createUser = exports.getUserById = exports.getUsers = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const User_1 = require("../models/User");
+const Class_1 = require("../models/Class");
 const auditService_1 = require("../services/auditService");
 const getUsers = async (req, res) => {
     try {
@@ -50,6 +51,10 @@ const createUser = async (req, res) => {
             res.status(400).json({ error: 'Full name, email, and password are required.' });
             return;
         }
+        if (String(password).length < 6) {
+            res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+            return;
+        }
         const normalizedEmail = email.toLowerCase().trim();
         const existing = await User_1.User.findOne({ email: normalizedEmail });
         if (existing) {
@@ -90,10 +95,14 @@ const createUser = async (req, res) => {
 exports.createUser = createUser;
 const updateUser = async (req, res) => {
     try {
-        const { fullName, email, role } = req.body;
+        const { fullName, email, role, password } = req.body;
         const user = await User_1.User.findById(req.params.id);
         if (!user) {
             res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        if (password !== undefined && String(password).length > 0 && String(password).length < 6) {
+            res.status(400).json({ error: 'Password must be at least 6 characters long.' });
             return;
         }
         if (email && email.toLowerCase().trim() !== user.email) {
@@ -109,13 +118,20 @@ const updateUser = async (req, res) => {
             user.fullName = fullName.trim();
         if (role)
             user.role = role;
+        if (password)
+            user.passwordHash = await bcryptjs_1.default.hash(String(password), 10);
         await user.save();
         await (0, auditService_1.logAudit)({
             userId: req.user._id,
             action: 'USER_UPDATED',
             entityType: 'User',
             entityId: user._id.toString(),
-            details: { fullName: user.fullName, email: user.email, role: user.role },
+            details: {
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role,
+                passwordChanged: Boolean(password),
+            },
             ipAddress: req.ip,
         });
         res.json({ message: 'User updated successfully', user });
@@ -182,3 +198,31 @@ const resetUserPassword = async (req, res) => {
     }
 };
 exports.resetUserPassword = resetUserPassword;
+const deleteTeacher = async (req, res) => {
+    try {
+        const teacher = await User_1.User.findById(req.params.id);
+        if (!teacher) {
+            res.status(404).json({ error: 'Teacher not found.' });
+            return;
+        }
+        if (teacher.role !== 'TEACHER') {
+            res.status(400).json({ error: 'Only teacher accounts can be deleted from this endpoint.' });
+            return;
+        }
+        await Class_1.ClassModel.updateMany({ teachers: teacher._id }, { $pull: { teachers: teacher._id } });
+        await teacher.deleteOne();
+        await (0, auditService_1.logAudit)({
+            userId: req.user._id,
+            action: 'TEACHER_DELETED',
+            entityType: 'User',
+            entityId: teacher._id.toString(),
+            details: { fullName: teacher.fullName, email: teacher.email },
+            ipAddress: req.ip,
+        });
+        res.json({ message: `Teacher account for ${teacher.fullName} was deleted.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to delete teacher' });
+    }
+};
+exports.deleteTeacher = deleteTeacher;

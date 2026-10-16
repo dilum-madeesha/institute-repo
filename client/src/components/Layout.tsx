@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from './Modal';
-import api from '../api/client';
+import { changePassword } from '../api';
 
 type Language = 'en' | 'si' | 'ta';
 
@@ -146,7 +146,7 @@ export const Layout: React.FC = () => {
 
     try {
       setIsSubmittingPassword(true);
-      await api.post('/auth/change-password', { currentPassword, newPassword });
+      await changePassword(currentPassword, newPassword);
       setPasswordSuccess('Password changed successfully.');
       setCurrentPassword('');
       setNewPassword('');

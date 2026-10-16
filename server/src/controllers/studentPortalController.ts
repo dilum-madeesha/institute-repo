@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { Enrollment } from '../models/Enrollment';
 import { AttendanceRecord } from '../models/AttendanceRecord';
+import { ClassSession } from '../models/ClassSession';
 import { Assignment } from '../models/Assignment';
 import { AssignmentSubmission } from '../models/AssignmentSubmission';
 import { Examination } from '../models/Examination';
@@ -9,21 +10,37 @@ import { Lesson } from '../models/Lesson';
 import { LessonProgress } from '../models/LessonProgress';
 import { Student } from '../models/Student';
 import { AuthRequest } from '../middleware/auth';
+import { getAttendanceWindowState } from '../services/attendanceWindow';
+import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export const getStudentPortalOverview = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = req.user!;
-    if (user.role !== 'STUDENT' || !user.studentId) {
-      res.status(403).json({ error: 'Access denied. Only registered student accounts can access this portal.' });
+    if (user.role !== 'STUDENT') {
+      res.status(403).json({ error: 'Access denied. Only student accounts can access this portal.' });
+      return;
+    }
+    if (!user.studentId) {
+      res.status(403).json({
+        error: 'This student login is not linked to a student profile. Ask an administrator to match the account email to the student profile or set the student login password again.',
+        code: 'STUDENT_PROFILE_NOT_LINKED',
+      });
       return;
     }
 
     const sId = user.studentId;
     const studentProfile = await Student.findById(sId).select(
-      'firstName lastName displayName studentNumber email phone address'
+      'firstName lastName displayName studentNumber email phone address status'
     );
+    if (!studentProfile || String(studentProfile.status).toUpperCase() !== 'ACTIVE') {
+      res.status(403).json({
+        error: 'The student profile linked to this login is missing or inactive. Ask an administrator to review the student account.',
+        code: 'STUDENT_PROFILE_UNAVAILABLE',
+      });
+      return;
+    }
 
-    const enrollments = await Enrollment.find({ studentId: sId, status: 'ACTIVE' }).populate({
+    const enrollments = await Enrollment.find(currentEnrollmentFilter(sId)).populate({
       path: 'classId',
       select: 'name classCode subject teachers description',
       populate: { path: 'teachers', select: 'fullName email' },
@@ -47,11 +64,59 @@ export const getStudentPortalOverview = async (req: AuthRequest, res: Response):
     const attendancePercentage =
       denominator > 0 ? Math.round(((presentCount + lateCount) / denominator) * 1000) / 10 : 100;
 
-    const totalLessons = await Lesson.countDocuments({ classId: { $in: classIds }, isPublished: true });
-    const completedProgress = await LessonProgress.find({ studentId: sId, isCompleted: true });
+    const publishedLessons = await Lesson.find({
+      classId: { $in: classIds },
+      isPublished: true,
+      $or: [{ publicationStatus: 'PUBLISHED' }, { publicationStatus: { $exists: false } }],
+    })
+      .select('_id title chapter topic classId order')
+      .populate('classId', 'name subject')
+      .sort({ chapter: 1, order: 1, createdAt: 1 });
+    const totalLessons = publishedLessons.length;
+    const completedProgress = await LessonProgress.find({
+      studentId: sId,
+      lessonId: { $in: publishedLessons.map((lesson) => lesson._id) },
+      isCompleted: true,
+    });
     const completedCount = completedProgress.length;
+    const completedLessonIds = new Set(
+      completedProgress.map((progress) => progress.lessonId.toString())
+    );
 
-    const allAssignments = await Assignment.find({ classId: { $in: classIds }, isPublished: true })
+    const attendanceSessions = await ClassSession.find({
+      classId: { $in: classIds },
+      $or: [{ isPublished: true }, { isPublished: { $exists: false } }],
+    })
+      .populate('classId', 'name classCode subject')
+      .sort({ sessionDate: -1 })
+      .limit(50);
+    const existingSessionRecords = await AttendanceRecord.find({
+      studentId: sId,
+      classSessionId: { $in: attendanceSessions.map((session) => session._id) },
+    }).select('classSessionId status');
+    const recordBySession = new Map(
+      existingSessionRecords.map((record) => [record.classSessionId.toString(), record])
+    );
+    const attendanceSessionList = attendanceSessions.map((session) => ({
+      id: session._id,
+      title: session.title,
+      sessionDate: session.sessionDate,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      timeZone: session.timeZone,
+      status: session.status,
+      checkInState: session.status === 'DRAFT' ? getAttendanceWindowState(session) : 'FINALIZED',
+      attendance: recordBySession.get(session._id.toString())?.status || null,
+      class: session.classId,
+    }));
+
+    const allAssignments = await Assignment.find({
+      classId: { $in: classIds },
+      $and: [
+        { $or: [{ publicationStatus: 'PUBLISHED' }, { publicationStatus: { $exists: false }, isPublished: true }] },
+        { $or: [{ targetMode: { $ne: 'SELECTED_STUDENTS' } }, { targetStudentIds: sId }] },
+      ],
+    })
       .populate('classId', 'name classCode')
       .sort({ dueDate: 1 });
 
@@ -69,9 +134,13 @@ export const getStudentPortalOverview = async (req: AuthRequest, res: Response):
         className: a.classId?.name,
         classCode: a.classId?.classCode,
         isSubmitted: !!sub,
-        submissionStatus: sub ? sub.status : 'PENDING',
-        marksAwarded: sub ? sub.marksAwarded : null,
-        feedback: sub ? sub.feedback : null,
+        submissionStatus: sub
+          ? sub.status === 'GRADED' && !sub.gradeReleasedAt
+            ? 'SUBMITTED'
+            : sub.status
+          : 'PENDING',
+        marksAwarded: sub?.gradeReleasedAt ? sub.marksAwarded : null,
+        feedback: sub?.gradeReleasedAt ? sub.feedback : null,
       };
     });
 
@@ -121,10 +190,19 @@ export const getStudentPortalOverview = async (req: AuthRequest, res: Response):
         attendancePercentage,
         recentRecords: attendance.slice(0, 5),
       },
+      attendanceSessions: attendanceSessionList,
       learningProgress: {
         totalLessons,
         completedLessons: completedCount,
         progressPercentage: totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0,
+        lessons: publishedLessons.slice(0, 10).map((lesson) => ({
+          id: lesson._id,
+          title: lesson.title,
+          chapter: lesson.chapter,
+          topic: lesson.topic,
+          class: lesson.classId,
+          isCompleted: completedLessonIds.has(lesson._id.toString()),
+        })),
       },
       assignments: assignmentList,
       exams: examList,

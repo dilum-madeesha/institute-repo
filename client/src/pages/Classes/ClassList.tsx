@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { School, Plus, Search, Filter, Users, Calendar, ArrowRight, UserCheck, Trash2, Pencil } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { ClassItem, User } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -36,7 +36,7 @@ export const ClassList: React.FC = () => {
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
 
-      const res = await api.get('/classes', { params });
+      const res = await apiService.getClasses(params);
       setClasses(res.data);
     } catch (err) {
       console.error('Failed to fetch classes:', err);
@@ -48,7 +48,7 @@ export const ClassList: React.FC = () => {
   const fetchTeachers = async () => {
     if (!isAdmin) return;
     try {
-      const res = await api.get('/users?role=TEACHER&status=ACTIVE');
+      const res = await apiService.getActiveTeachers();
       setTeachers(res.data);
     } catch (err) {
       console.error('Failed to load teachers:', err);
@@ -78,9 +78,9 @@ export const ClassList: React.FC = () => {
         teachers: selectedTeachers,
       };
       if (editingClass) {
-        await api.patch(`/classes/${editingClass._id}`, classData);
+        await apiService.updateClass(editingClass._id, classData);
       } else {
-        await api.post('/classes', classData);
+        await apiService.createClass(classData);
       }
 
       setCreateModalOpen(false);
@@ -114,7 +114,7 @@ export const ClassList: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     try {
-      await api.patch(`/classes/${classId}/status`);
+      await apiService.toggleClassStatus(classId);
       fetchClasses();
     } catch (err) {
       console.error('Failed to toggle status:', err);
@@ -133,7 +133,7 @@ export const ClassList: React.FC = () => {
     setDeleteError('');
     setDeletingClassId(classItem._id);
     try {
-      await api.delete(`/classes/${classItem._id}`);
+      await apiService.deleteClass(classItem._id);
       setClasses((currentClasses) => currentClasses.filter((currentClass) => currentClass._id !== classItem._id));
     } catch (err: any) {
       setDeleteError(err.response?.data?.error || 'Failed to delete class.');

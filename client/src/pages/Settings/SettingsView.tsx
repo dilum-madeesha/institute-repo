@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Sliders, Save, School, ShieldCheck, Mail, Bell, Lock, Check } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import api from '../../api/client';
+import { changePassword } from '../../api';
 
 export const SettingsView: React.FC = () => {
   const { user } = useAuth();
@@ -28,7 +28,7 @@ export const SettingsView: React.FC = () => {
     setPwdMsg('');
     setPwdErr('');
     try {
-      await api.post('/auth/change-password', { currentPassword, newPassword });
+      await changePassword(currentPassword, newPassword);
       setPwdMsg('Password updated successfully.');
       setCurrentPassword('');
       setNewPassword('');

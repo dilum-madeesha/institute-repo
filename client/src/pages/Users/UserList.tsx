@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserCheck, Plus, Search, Filter, ShieldCheck, KeyRound, UserX } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { User } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -36,7 +36,7 @@ export const UserList: React.FC = () => {
       if (search) params.search = search;
       if (roleFilter) params.role = roleFilter;
 
-      const res = await api.get('/users', { params });
+      const res = await apiService.getUsers(params);
       setUsers(res.data);
     } catch (err) {
       console.error('Failed to load users:', err);
@@ -55,7 +55,7 @@ export const UserList: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await api.post('/users', { fullName, email, password, role });
+      await apiService.createUser({ fullName, email, password, role });
       setCreateModalOpen(false);
       setFullName('');
       setEmail('');
@@ -75,7 +75,7 @@ export const UserList: React.FC = () => {
     }
 
     try {
-      await api.patch(`/users/${user._id || user.id}/status`);
+      await apiService.toggleUserStatus((user._id || user.id)!);
       fetchUsers();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to update user status.');
@@ -93,7 +93,7 @@ export const UserList: React.FC = () => {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post(`/users/${selectedUserId}/reset-password`, { newPassword });
+      await apiService.resetUserPassword(selectedUserId!, newPassword);
       setResetMessage('Password reset successfully.');
       setTimeout(() => setResetModalOpen(false), 1200);
     } catch (err: any) {

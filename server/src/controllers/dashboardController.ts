@@ -15,6 +15,7 @@ import { ExamSubmission } from '../models/ExamSubmission';
 import { AttendanceRecord } from '../models/AttendanceRecord';
 import { LessonProgress } from '../models/LessonProgress';
 import { AuthRequest } from '../middleware/auth';
+import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export const getDashboardStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -222,12 +223,18 @@ export const getDashboardStats = async (req: AuthRequest, res: Response): Promis
     // 3. STUDENT Dashboard
     if (user.role === 'STUDENT' && user.studentId) {
       const sId = user.studentId;
-      const enrollments = await Enrollment.find({ studentId: sId, status: 'ACTIVE' }).select('classId');
+      const enrollments = await Enrollment.find(currentEnrollmentFilter(sId)).select('classId');
       const classIds = enrollments.map((e) => e.classId);
 
       const [attendance, assignments, submissions, exams, examSubs, progress] = await Promise.all([
         AttendanceRecord.find({ studentId: sId }),
-        Assignment.find({ classId: { $in: classIds } }),
+        Assignment.find({
+          classId: { $in: classIds },
+          $and: [
+            { $or: [{ publicationStatus: 'PUBLISHED' }, { publicationStatus: { $exists: false }, isPublished: true }] },
+            { $or: [{ targetMode: { $ne: 'SELECTED_STUDENTS' } }, { targetStudentIds: sId }] },
+          ],
+        }),
         AssignmentSubmission.find({ studentId: sId }),
         Examination.find({ classId: { $in: classIds } }),
         ExamSubmission.find({ studentId: sId }),

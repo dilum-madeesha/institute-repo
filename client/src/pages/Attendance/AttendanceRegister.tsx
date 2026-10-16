@@ -15,7 +15,7 @@ import {
   AlertCircle,
   HelpCircle,
 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { AttendanceStatus, SessionStatus } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -81,7 +81,7 @@ export const AttendanceRegister: React.FC = () => {
   const fetchSessionAttendance = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/sessions/${sessionId}/attendance`);
+      const res = await apiService.getSessionAttendance(sessionId!);
       setSession(res.data.session);
       setRoster(res.data.roster);
 
@@ -164,7 +164,7 @@ export const AttendanceRegister: React.FC = () => {
       setMessage(null);
       const items = buildItemsPayload();
 
-      await api.put(`/sessions/${sessionId}/attendance`, { items });
+      await apiService.updateSessionAttendance(sessionId!, { items });
       setMessage({ type: 'success', text: 'Attendance draft saved successfully.' });
       fetchSessionAttendance();
     } catch (err: any) {
@@ -180,7 +180,7 @@ export const AttendanceRegister: React.FC = () => {
       setMessage(null);
       const items = buildItemsPayload();
 
-      await api.post(`/sessions/${sessionId}/submit`, { items, allowPartial });
+      await apiService.submitSessionAttendance(sessionId!, { items, allowPartial });
       setMessage({
         type: 'success',
         text: 'Attendance finalized and submitted! Guardian absence emails have been queued.',
@@ -222,7 +222,7 @@ export const AttendanceRegister: React.FC = () => {
     }
 
     try {
-      await api.patch(`/attendance/${selectedRecordId}`, {
+      await apiService.correctAttendance(selectedRecordId!, {
         newStatus: correctionNewStatus,
         reason: correctionReason,
         note: correctionNote,
@@ -239,7 +239,7 @@ export const AttendanceRegister: React.FC = () => {
 
   const viewChangeLogs = async (recordId: string) => {
     try {
-      const res = await api.get(`/attendance/${recordId}/logs`);
+      const res = await apiService.getAttendanceLogs(recordId);
       setActiveChangeLogs(res.data);
       setChangeLogsModalOpen(true);
     } catch (err) {

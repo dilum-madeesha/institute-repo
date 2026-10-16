@@ -45,12 +45,46 @@ const AssignmentSchema = new mongoose_1.Schema({
         {
             name: { type: String, required: true },
             fileUrl: { type: String, required: true },
+            fileId: { type: String },
+            storageKey: { type: String },
+            originalName: { type: String },
+            mimeType: { type: String },
+            size: { type: Number, min: 0 },
         },
     ],
-    isPublished: { type: Boolean, default: true },
+    isPublished: { type: Boolean, default: true, index: true },
+    publicationStatus: {
+        type: String,
+        enum: ['DRAFT', 'SCHEDULED', 'PUBLISHED', 'ARCHIVED', 'CANCELLED'],
+        default: 'PUBLISHED',
+        index: true,
+    },
+    targetMode: {
+        type: String,
+        enum: ['ALL_ENROLLED', 'SELECTED_STUDENTS'],
+        default: 'ALL_ENROLLED',
+    },
+    targetStudentIds: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Student' }],
+    submissionType: {
+        type: String,
+        enum: ['TEXT', 'FILE', 'TEXT_OR_FILE', 'LINK_OR_TEXT'],
+        default: 'LINK_OR_TEXT',
+    },
+    latePolicy: {
+        type: String,
+        enum: ['ALLOW', 'REJECT', 'ACCEPT_FLAG_LATE'],
+        default: 'ACCEPT_FLAG_LATE',
+    },
+    allowResubmission: { type: Boolean, default: false },
+    maxAttempts: { type: Number, default: null, min: 1 },
+    resubmissionUntil: { type: Date, default: null },
+    publishAt: { type: Date, default: null, index: true },
+    publishedAt: { type: Date, default: null },
+    archivedAt: { type: Date, default: null },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
 }, {
     timestamps: true,
 });
-AssignmentSchema.index({ classId: 1, dueDate: 1 });
+AssignmentSchema.index({ classId: 1, publicationStatus: 1, dueDate: 1 });
+AssignmentSchema.index({ publicationStatus: 1, publishAt: 1 });
 exports.Assignment = mongoose_1.default.model('Assignment', AssignmentSchema);

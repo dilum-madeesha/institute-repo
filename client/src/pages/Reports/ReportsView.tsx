@@ -11,7 +11,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { ClassItem } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
 
@@ -30,7 +30,7 @@ export const ReportsView: React.FC = () => {
   useEffect(() => {
     const fetchClasses = async () => {
       try {
-        const res = await api.get('/classes?status=ACTIVE');
+        const res = await apiService.getClasses({ status: 'ACTIVE' });
         setClasses(res.data);
       } catch (err) {
         console.error('Failed to load classes:', err);
@@ -48,13 +48,13 @@ export const ReportsView: React.FC = () => {
       if (endDate) params.endDate = endDate;
 
       if (activeTab === 'summary') {
-        const res = await api.get('/reports/summary', { params });
+        const res = await apiService.getReportSummary(params);
         setSummaryData(res.data);
       } else if (activeTab === 'absences') {
-        const res = await api.get('/reports/absences', { params });
+        const res = await apiService.getAbsenceReport(params);
         setAbsenceData(res.data);
       } else if (activeTab === 'missing') {
-        const res = await api.get('/reports/missing-guardians');
+        const res = await apiService.getMissingGuardianReport();
         setMissingData(res.data);
       }
     } catch (err) {
@@ -68,14 +68,28 @@ export const ReportsView: React.FC = () => {
     fetchReport();
   }, [activeTab, selectedClass, startDate, endDate]);
 
-  const handleExportCsv = () => {
+  const handleExportCsv = async () => {
     const params = new URLSearchParams();
     if (activeTab === 'absences') params.append('type', 'absences');
     if (selectedClass) params.append('classId', selectedClass);
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
 
-    window.open(`/api/reports/export-csv?${params.toString()}`, '_blank');
+    try {
+      const response = await apiService.downloadReportCsv(params);
+      const objectUrl = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      const disposition = response.headers['content-disposition'];
+      const fileName = typeof disposition === 'string'
+        ? disposition.match(/filename="?([^";]+)"?/i)?.[1]
+        : undefined;
+      anchor.download = fileName || 'attendance-report.csv';
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err) {
+      console.error('Failed to export report:', err);
+    }
   };
 
   return (

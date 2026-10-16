@@ -2,9 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const studentPortalController_1 = require("../controllers/studentPortalController");
+const studentAttendanceController_1 = require("../controllers/studentAttendanceController");
 const auth_1 = require("../middleware/auth");
 const role_1 = require("../middleware/role");
 const router = (0, express_1.Router)();
 router.use(auth_1.authenticate, (0, role_1.requireRoles)(['STUDENT']));
 router.get('/overview', studentPortalController_1.getStudentPortalOverview);
+router.get('/attendance/sessions', studentAttendanceController_1.getStudentAttendanceSessions);
+router.post('/attendance/sessions/:sessionId/check-in', studentAttendanceController_1.checkInStudentAttendance);
 exports.default = router;

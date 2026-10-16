@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../api/client';
-import { User } from '../types';
+import axios from 'axios';
+import * as apiService from '../api';
+import { User, UserRole } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -17,24 +18,55 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const readSavedUser = (): User | null => {
+  const saved = localStorage.getItem('user');
+  if (!saved) return null;
+
+  try {
+    const parsed: Partial<User> | null = JSON.parse(saved);
+    const role = typeof parsed?.role === 'string' ? parsed.role.trim().toUpperCase() : '';
+    const status = typeof parsed?.status === 'string' ? parsed.status.trim().toUpperCase() : '';
+    const validRoles: UserRole[] = ['ADMIN', 'TEACHER', 'STUDENT', 'PARENT'];
+    if (
+      !parsed ||
+      typeof parsed.id !== 'string' ||
+      typeof parsed.fullName !== 'string' ||
+      typeof parsed.email !== 'string' ||
+      !validRoles.includes(role as UserRole) ||
+      (status !== 'ACTIVE' && status !== 'INACTIVE')
+    ) {
+      localStorage.removeItem('user');
+      return null;
+    }
+    const normalizedUser = { ...parsed, role: role as UserRole, status } as User;
+    localStorage.setItem('user', JSON.stringify(normalizedUser));
+    return normalizedUser;
+  } catch {
+    localStorage.removeItem('user');
+    return null;
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState<User | null>(readSavedUser);
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const refreshUser = async () => {
     try {
-      const res = await api.get('/auth/me');
+      const res = await apiService.getCurrentUser();
       setUser(res.data.user);
       localStorage.setItem('user', JSON.stringify(res.data.user));
-    } catch {
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem('user');
-      localStorage.removeItem('token');
+    } catch (error) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (status === 401 || status === 403) {
+        setUser(null);
+        setToken(null);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      } else {
+        console.error('Failed to refresh the authenticated user:', error);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [token]);
 
   const login = async (email: string, password: string) => {
-    const res = await api.post('/auth/login', { email, password });
+    const res = await apiService.signIn(email, password);
     const { token: newToken, user: userData } = res.data;
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(userData));
@@ -59,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await api.post('/auth/logout');
+      await apiService.signOut();
     } catch (err) {
       console.warn('Logout endpoint error:', err);
     } finally {

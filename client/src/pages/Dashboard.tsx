@@ -31,7 +31,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import api from '../api/client';
+import * as apiService from '../api';
 import { DashboardStats } from '../types';
 import { Modal } from '../components/Modal';
 
@@ -43,6 +43,7 @@ export const Dashboard: React.FC = () => {
   const [parentData, setParentData] = useState<any>(null);
   const [studentData, setStudentData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState('');
 
   // Live Digital Clock & Greeting
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -71,21 +72,46 @@ export const Dashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      setDashboardError('');
       if (isParent) {
-        const res = await api.get('/parent/dashboard');
+        const res = await apiService.getParentDashboard();
         setParentData(res.data);
       } else if (isStudent) {
-        const res = await api.get('/student/overview');
+        const res = await apiService.getStudentOverview();
         setStudentData(res.data);
       } else {
-        const res = await api.get('/dashboard/stats');
+        const res = await apiService.getDashboardStats();
         setStats(res.data);
       }
-    } catch (err) {
-      console.error('Failed to load dashboard:', err);
+
+    } catch (err: any) {
+      console.error('Failed to load dashboard:', {
+        status: err.response?.status,
+        message: err.response?.data?.error,
+        response: err.response?.data,
+        url: err.config?.url,
+        method: err.config?.method,
+      });
+
+      if (err.response?.status === 401) {
+        setDashboardError('Your session has expired. Please log in again.');
+      } else if (err.response?.status === 403) {
+        setDashboardError(
+          err.response?.data?.error ||
+          err.response?.data?.message ||
+          'Access denied. Please check your account role and permissions.'
+        );
+      } else {
+        setDashboardError(
+          err.response?.data?.error ||
+          err.response?.data?.message ||
+          'Dashboard data could not be loaded. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
+
   };
 
   useEffect(() => {
@@ -104,7 +130,7 @@ export const Dashboard: React.FC = () => {
     e.preventDefault();
     try {
       setIsSubmittingStudent(true);
-      await api.post('/students', {
+      await apiService.createStudent({
         firstName: studentFirstName,
         lastName: studentLastName,
         email: studentEmail,
@@ -127,7 +153,7 @@ export const Dashboard: React.FC = () => {
     e.preventDefault();
     try {
       setIsSubmittingClass(true);
-      await api.post('/classes', {
+      await apiService.createClass({
         name: className,
         classCode: classCode.toUpperCase(),
         subject: classSubject,
@@ -214,6 +240,15 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {dashboardError && (
+        <div role="alert" className="p-4 text-sm text-red-700 border border-red-200 rounded-xl bg-red-50">
+          {dashboardError}
+          <button type="button" onClick={() => void fetchDashboardData()} className="ml-2 font-semibold underline">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* 2. ADMIN DASHBOARD */}
       {isAdmin && stats && (
@@ -853,6 +888,13 @@ export const Dashboard: React.FC = () => {
       {/* 4. STUDENT DASHBOARD */}
       {isStudent && studentData && (
         <div className="space-y-6">
+          {studentData.classes?.length === 0 && (
+            <div className="p-4 text-sm border rounded-xl border-amber-200 bg-amber-50 text-amber-900">
+              This student account has no current class enrollments. Attendance, lessons, assignments, and exams are
+              delivered through enrolled classes. Ask an administrator to check the student login is linked to the
+              correct student profile and that the enrollment status and dates are current.
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
             <div className="flex items-center justify-between p-5 bg-white border shadow-sm rounded-2xl border-slate-200/80">
               <div>
@@ -912,22 +954,22 @@ export const Dashboard: React.FC = () => {
               <h3 className="mb-4 text-sm font-bold text-slate-900">My Student Details</h3>
               <dl className="space-y-3 text-sm">
                 <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Full name</dt>
+                  <dt className="text-xs font-semibold tracking-wide uppercase text-slate-400">Full name</dt>
                   <dd className="mt-0.5 font-semibold text-slate-800">
                     {studentData.profile?.displayName || studentData.studentName}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Email</dt>
+                  <dt className="text-xs font-semibold tracking-wide uppercase text-slate-400">Email</dt>
                   <dd className="mt-0.5 font-semibold text-slate-800">{studentData.profile?.email || user?.email}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Student number</dt>
+                  <dt className="text-xs font-semibold tracking-wide uppercase text-slate-400">Student number</dt>
                   <dd className="mt-0.5 font-semibold text-slate-800">{studentData.profile?.studentNumber || 'Not assigned'}</dd>
                 </div>
                 {studentData.profile?.phone && (
                   <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Phone</dt>
+                    <dt className="text-xs font-semibold tracking-wide uppercase text-slate-400">Phone</dt>
                     <dd className="mt-0.5 font-semibold text-slate-800">{studentData.profile.phone}</dd>
                   </div>
                 )}
@@ -947,7 +989,7 @@ export const Dashboard: React.FC = () => {
                     <Link
                       key={classItem._id}
                       to={`/classes/${classItem._id}`}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4 transition hover:border-blue-300 hover:bg-blue-50"
+                      className="p-4 transition border rounded-xl border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50"
                     >
                       <p className="text-sm font-bold text-slate-900">{classItem.name}</p>
                       <p className="mt-1 text-xs text-slate-500">
@@ -957,11 +999,176 @@ export const Dashboard: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <p className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                <p className="px-4 py-5 text-sm rounded-xl bg-slate-50 text-slate-500">
                   You are not enrolled in any active classes yet.
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="p-6 bg-white border shadow-sm rounded-3xl border-slate-200/80">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Published Attendance Sessions</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {studentData.attendanceSessions?.length ?? 0} sessions from your enrolled classes
+                </p>
+              </div>
+              <Link to="/attendance" className="text-xs font-semibold text-blue-600 hover:underline">
+                View attendance &rarr;
+              </Link>
+            </div>
+            {studentData.attendanceSessions?.length ? (
+              <div className="divide-y divide-slate-100">
+                {studentData.attendanceSessions.slice(0, 4).map((session: any) => (
+                  <div key={session.id} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{session.title}</p>
+                      <p className="text-xs text-slate-500">
+                        {session.class?.name || 'Class'}{session.class?.subject ? ` · ${session.class.subject}` : ''}
+                        {' · '}{new Date(session.sessionDate).toLocaleDateString()}
+                        {' · '}{session.startTime}–{session.endTime}
+                      </p>
+                    </div>
+                    <span className={`w-fit rounded-full px-2.5 py-1 text-[10px] font-bold ${session.attendance
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : session.checkInState === 'OPEN'
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                      {session.attendance || session.checkInState}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="px-4 py-5 text-sm rounded-xl bg-slate-50 text-slate-500">
+                No published attendance sessions are available for your current classes.
+              </p>
+            )}
+          </div>
+
+          <div className="p-6 bg-white border shadow-sm rounded-3xl border-slate-200/80">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Video Lesson Progress</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {studentData.learningProgress?.completedLessons ?? 0} completed · {
+                    Math.max(
+                      0,
+                      (studentData.learningProgress?.totalLessons ?? 0) -
+                      (studentData.learningProgress?.completedLessons ?? 0)
+                    )
+                  } incomplete
+                </p>
+              </div>
+              <Link to="/video-lessons" className="text-xs font-semibold text-blue-600 hover:underline">
+                Open lessons &rarr;
+              </Link>
+            </div>
+            <div className="h-2 mt-3 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full transition-all bg-blue-600 rounded-full"
+                style={{ width: `${studentData.learningProgress?.progressPercentage ?? 0}%` }}
+              />
+            </div>
+            <p className="mt-1 text-right text-[11px] font-semibold text-slate-500">
+              {studentData.learningProgress?.progressPercentage ?? 0}% complete
+            </p>
+            {studentData.learningProgress?.lessons?.length ? (
+              <div className="mt-2 divide-y divide-slate-100">
+                {studentData.learningProgress.lessons.slice(0, 5).map((lesson: any) => (
+                  <div key={lesson.id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold truncate text-slate-800">{lesson.title}</p>
+                      <p className="truncate text-[11px] text-slate-500">
+                        {lesson.class?.name || 'Class'}
+                        {lesson.chapter ? ` · ${lesson.chapter}` : ''}
+                        {lesson.topic ? ` · ${lesson.topic}` : ''}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${lesson.isCompleted ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                      {lesson.isCompleted ? 'Completed' : 'Incomplete'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="px-4 py-5 mt-3 text-sm rounded-xl bg-slate-50 text-slate-500">
+                No published lessons are available for your current classes.
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <section className="p-6 bg-white border shadow-sm rounded-3xl border-slate-200/80">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">My Assignments</h3>
+                  <p className="mt-1 text-xs text-slate-500">Published work for your enrolled classes</p>
+                </div>
+                <Link to="/assignments" className="text-xs font-semibold text-blue-600 hover:underline">
+                  View all &rarr;
+                </Link>
+              </div>
+              {studentData.assignments?.length ? (
+                <div className="divide-y divide-slate-100">
+                  {studentData.assignments.slice(0, 4).map((assignment: any) => (
+                    <div key={assignment.id} className="flex items-center justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate text-slate-800">{assignment.title}</p>
+                        <p className="text-xs truncate text-slate-500">
+                          {assignment.className || 'Class'} · Due {new Date(assignment.dueDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${assignment.isSubmitted ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                        }`}>
+                        {assignment.isSubmitted ? assignment.submissionStatus : 'Not submitted'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-4 py-5 text-sm rounded-xl bg-slate-50 text-slate-500">
+                  No published assignments are currently available for your classes.
+                </p>
+              )}
+            </section>
+
+            <section className="p-6 bg-white border shadow-sm rounded-3xl border-slate-200/80">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">My Exams</h3>
+                  <p className="mt-1 text-xs text-slate-500">Published exams for your enrolled classes</p>
+                </div>
+                <Link to="/exams" className="text-xs font-semibold text-blue-600 hover:underline">
+                  View all &rarr;
+                </Link>
+              </div>
+              {studentData.exams?.length ? (
+                <div className="divide-y divide-slate-100">
+                  {studentData.exams.slice(0, 4).map((exam: any) => (
+                    <div key={exam.id} className="flex items-center justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate text-slate-800">{exam.title}</p>
+                        <p className="text-xs truncate text-slate-500">
+                          {exam.className || 'Class'} · {new Date(exam.examDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${exam.isCompleted ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
+                        }`}>
+                        {exam.isCompleted ? 'Completed' : 'Available'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-4 py-5 text-sm rounded-xl bg-slate-50 text-slate-500">
+                  No published exams are currently available for your classes.
+                </p>
+              )}
+            </section>
           </div>
 
           {/* Student Learning Quick Launch */}

@@ -4,6 +4,7 @@ exports.verifyParentStudentLink = exports.canAccessClass = exports.requireRoles 
 const Class_1 = require("../models/Class");
 const Enrollment_1 = require("../models/Enrollment");
 const StudentGuardian_1 = require("../models/StudentGuardian");
+const enrollmentAccess_1 = require("../services/enrollmentAccess");
 const requireAdmin = (req, res, next) => {
     if (!req.user) {
         res.status(401).json({ error: 'Authentication required' });
@@ -54,22 +55,14 @@ const canAccessClass = async (userId, userRole, classId, studentId, guardianId) 
         return classObj.teachers.some((tId) => tId.toString() === userId.toString());
     }
     if (userRole === 'STUDENT' && studentId) {
-        const activeEnrollment = await Enrollment_1.Enrollment.findOne({
-            classId,
-            studentId,
-            status: 'ACTIVE',
-        });
+        const activeEnrollment = await Enrollment_1.Enrollment.findOne((0, enrollmentAccess_1.currentEnrollmentFilter)(studentId, classId));
         return !!activeEnrollment;
     }
     if (userRole === 'PARENT' && guardianId) {
         // Find children linked to this parent
         const links = await StudentGuardian_1.StudentGuardian.find({ guardianId });
         const childStudentIds = links.map((l) => l.studentId);
-        const activeEnrollment = await Enrollment_1.Enrollment.findOne({
-            classId,
-            studentId: { $in: childStudentIds },
-            status: 'ACTIVE',
-        });
+        const activeEnrollment = await Enrollment_1.Enrollment.findOne((0, enrollmentAccess_1.currentEnrollmentFilter)({ $in: childStudentIds }, classId));
         return !!activeEnrollment;
     }
     return false;

@@ -33,8 +33,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.User = void 0;
+exports.User = exports.normalizeAccountStatus = exports.normalizeUserRole = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
+const userRoles = ['ADMIN', 'TEACHER', 'STUDENT', 'PARENT'];
+const normalizeUserRole = (value) => {
+    if (typeof value !== 'string')
+        return null;
+    const normalizedRole = value.trim().toUpperCase();
+    return userRoles.includes(normalizedRole)
+        ? normalizedRole
+        : null;
+};
+exports.normalizeUserRole = normalizeUserRole;
+const normalizeAccountStatus = (value) => {
+    if (typeof value !== 'string')
+        return null;
+    const normalized = value.trim().toUpperCase();
+    return normalized === 'ACTIVE' || normalized === 'INACTIVE' ? normalized : null;
+};
+exports.normalizeAccountStatus = normalizeAccountStatus;
 const UserSchema = new mongoose_1.Schema({
     fullName: { type: String, required: true, trim: true },
     email: {

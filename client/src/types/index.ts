@@ -74,6 +74,8 @@ export interface ClassSession {
   title?: string;
   timeZone?: string;
   status: SessionStatus;
+  isPublished?: boolean;
+  publishedAt?: string | null;
   createdBy?: any;
   submittedBy?: any;
   submittedAt?: string;
@@ -130,6 +132,7 @@ export interface LessonAttachment {
   fileUrl: string;
   fileType: string;
   fileSize?: string;
+  fileId?: string;
 }
 
 export interface Lesson {
@@ -139,9 +142,14 @@ export interface Lesson {
   description?: string;
   videoUrl?: string;
   duration?: string;
+  chapter?: string;
+  topic?: string;
   attachments: LessonAttachment[];
   order: number;
   isPublished: boolean;
+  publicationStatus?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  publishedAt?: string | null;
+  archivedAt?: string | null;
   isCompleted?: boolean;
   createdBy?: any;
   createdAt: string;
@@ -154,8 +162,19 @@ export interface Assignment {
   description: string;
   dueDate: string;
   totalMarks: number;
-  attachments: Array<{ name: string; fileUrl: string }>;
+  attachments: Array<{ name: string; fileUrl: string; fileId?: string }>;
   isPublished: boolean;
+  publicationStatus: 'DRAFT' | 'SCHEDULED' | 'PUBLISHED' | 'ARCHIVED' | 'CANCELLED';
+  targetMode: 'ALL_ENROLLED' | 'SELECTED_STUDENTS';
+  targetStudentIds: string[];
+  submissionType: 'TEXT' | 'FILE' | 'TEXT_OR_FILE' | 'LINK_OR_TEXT';
+  latePolicy: 'ALLOW' | 'REJECT' | 'ACCEPT_FLAG_LATE';
+  allowResubmission: boolean;
+  maxAttempts?: number | null;
+  resubmissionUntil?: string | null;
+  publishAt?: string | null;
+  publishedAt?: string | null;
+  archivedAt?: string | null;
   submissionCount?: number;
   mySubmission?: AssignmentSubmission | null;
   childSubmission?: AssignmentSubmission | null;
@@ -170,10 +189,24 @@ export interface AssignmentSubmission {
   classId: string | any;
   submissionText: string;
   attachmentUrl?: string;
+  submissionFiles?: Array<{ fileId: string; name: string; fileUrl: string }>;
   submittedAt: string;
-  status: 'SUBMITTED' | 'GRADED' | 'LATE';
+  status: 'SUBMITTED' | 'GRADED' | 'LATE' | 'RETURNED';
   marksAwarded?: number | null;
   feedback?: string;
+  gradeReleasedAt?: string | null;
+  attemptNumber?: number;
+  attemptHistory?: Array<{
+    attemptNumber: number;
+    submissionText: string;
+    attachmentUrl?: string;
+    submissionFiles?: Array<{ fileId: string; name: string; fileUrl: string }>;
+    submittedAt: string;
+    status: 'SUBMITTED' | 'GRADED' | 'LATE' | 'RETURNED';
+    marksAwarded?: number | null;
+    feedback?: string;
+    gradeReleasedAt?: string | null;
+  }>;
   gradedBy?: any;
   gradedAt?: string;
 }

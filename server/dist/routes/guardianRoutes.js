@@ -9,4 +9,5 @@ router.use(auth_1.authenticate, role_1.requireTeacherOrAdmin);
 router.get('/', guardianController_1.getGuardians);
 router.post('/', guardianController_1.createGuardian);
 router.patch('/:id', guardianController_1.updateGuardian);
+router.delete('/:id', role_1.requireAdmin, guardianController_1.deleteGuardian);
 exports.default = router;

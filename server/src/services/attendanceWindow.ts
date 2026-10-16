@@ -73,7 +73,10 @@ export const getAttendanceWindowState = (
 
 export const finalizeExpiredAttendanceSessions = async (): Promise<void> => {
   const now = new Date();
-  const draftSessions = await ClassSession.find({ status: 'DRAFT' });
+  const draftSessions = await ClassSession.find({
+    status: 'DRAFT',
+    $or: [{ isPublished: true }, { isPublished: { $exists: false } }],
+  });
 
   for (const session of draftSessions) {
     const { end } = getAttendanceWindow(session);
@@ -105,7 +108,7 @@ export const finalizeExpiredAttendanceSessions = async (): Promise<void> => {
             $setOnInsert: {
               classSessionId: session._id,
               studentId,
-              status: 'ABSENT',
+              status: 'ABSENT' as const,
               markedBy: session.createdBy,
               markedAt: end,
             },

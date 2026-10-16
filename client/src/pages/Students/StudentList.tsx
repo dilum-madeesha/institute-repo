@@ -13,7 +13,7 @@ import {
   Trash2,
   Pencil,
 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { ClassItem, Student } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -50,7 +50,7 @@ export const StudentList: React.FC = () => {
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
 
-      const res = await api.get('/students', { params });
+      const res = await apiService.getStudents(params);
       setStudents(res.data);
     } catch (err) {
       console.error('Failed to fetch students:', err);
@@ -65,7 +65,7 @@ export const StudentList: React.FC = () => {
 
   useEffect(() => {
     if (!isAdmin) return;
-    api.get('/classes')
+    apiService.getClasses()
       .then((res) => setAvailableClasses(res.data))
       .catch((err) => console.error('Failed to load classes for student enrollment:', err));
   }, [isAdmin]);
@@ -90,11 +90,11 @@ export const StudentList: React.FC = () => {
       let studentId: string;
       let savedStudent: Student;
       if (editingStudent) {
-        await api.patch(`/students/${editingStudent._id}`, studentData);
+        await apiService.updateStudent(editingStudent._id, studentData);
         studentId = editingStudent._id;
         savedStudent = editingStudent;
       } else {
-        const response = await api.post('/students', studentData);
+        const response = await apiService.createStudent(studentData);
         savedStudent = response.data;
         studentId = response.data._id;
       }
@@ -114,20 +114,20 @@ export const StudentList: React.FC = () => {
 
         currentByClassId.forEach((enrollment, classId) => {
           if (!selectedIds.has(classId)) {
-            enrollmentChanges.push(api.delete(`/enrollments/${enrollment._id}`));
+            enrollmentChanges.push(apiService.deleteEnrollment(enrollment._id));
           }
         });
         selectedClassIds.forEach((classId) => {
           if (!currentByClassId.has(classId)) {
-            enrollmentChanges.push(api.post('/enrollments', { studentId, classId }));
+            enrollmentChanges.push(apiService.createEnrollment({ studentId, classId }));
           }
         });
 
         const results = await Promise.allSettled(enrollmentChanges);
         const failedChanges = results.filter((result) => result.status === 'rejected').length;
         if (failedChanges > 0) {
-          const refreshedStudent = await api.get(`/students/${studentId}`);
-          const activeEnrollments = refreshedStudent.data.enrollments.filter(
+          const refreshedStudent = await apiService.getStudent(studentId);
+          const activeEnrollments = (refreshedStudent.data.enrollments || []).filter(
             (enrollment: any) => enrollment.status === 'ACTIVE'
           );
           setEditingStudent({ ...savedStudent, enrollments: activeEnrollments });
@@ -191,7 +191,7 @@ export const StudentList: React.FC = () => {
     setDeleteError('');
     setDeletingStudentId(student._id);
     try {
-      await api.delete(`/students/${student._id}`);
+      await apiService.deleteStudent(student._id);
       setStudents((currentStudents) => currentStudents.filter((currentStudent) => currentStudent._id !== student._id));
     } catch (err: any) {
       setDeleteError(err.response?.data?.error || 'Failed to delete student.');

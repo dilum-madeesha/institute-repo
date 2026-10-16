@@ -41,10 +41,19 @@ const AssignmentSubmissionSchema = new mongoose_1.Schema({
     classId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Class', required: true, index: true },
     submissionText: { type: String, default: '' },
     attachmentUrl: { type: String },
+    submissionFiles: [
+        {
+            fileId: { type: String, required: true },
+            storageKey: { type: String, required: true },
+            originalName: { type: String, required: true },
+            mimeType: { type: String, required: true },
+            size: { type: Number, required: true, min: 0 },
+        },
+    ],
     submittedAt: { type: Date, default: Date.now },
     status: {
         type: String,
-        enum: ['SUBMITTED', 'GRADED', 'LATE'],
+        enum: ['SUBMITTED', 'GRADED', 'LATE', 'RETURNED'],
         default: 'SUBMITTED',
         index: true,
     },
@@ -52,8 +61,39 @@ const AssignmentSubmissionSchema = new mongoose_1.Schema({
     feedback: { type: String, default: '' },
     gradedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
     gradedAt: { type: Date, default: null },
+    gradeReleasedAt: { type: Date, default: null },
+    attemptNumber: { type: Number, default: 1, min: 1 },
+    attemptHistory: [
+        {
+            attemptNumber: { type: Number, required: true },
+            submissionText: { type: String, default: '' },
+            attachmentUrl: { type: String },
+            submissionFiles: [
+                {
+                    fileId: { type: String, required: true },
+                    storageKey: { type: String, required: true },
+                    originalName: { type: String, required: true },
+                    mimeType: { type: String, required: true },
+                    size: { type: Number, required: true, min: 0 },
+                },
+            ],
+            submittedAt: { type: Date, required: true },
+            status: {
+                type: String,
+                enum: ['SUBMITTED', 'GRADED', 'LATE', 'RETURNED'],
+                required: true,
+            },
+            marksAwarded: { type: Number, default: null },
+            feedback: { type: String, default: '' },
+            gradedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
+            gradedAt: { type: Date, default: null },
+            gradeReleasedAt: { type: Date, default: null },
+        },
+    ],
 }, {
     timestamps: true,
+    optimisticConcurrency: true,
 });
 AssignmentSubmissionSchema.index({ assignmentId: 1, studentId: 1 }, { unique: true });
+AssignmentSubmissionSchema.index({ assignmentId: 1, status: 1 });
 exports.AssignmentSubmission = mongoose_1.default.model('AssignmentSubmission', AssignmentSubmissionSchema);

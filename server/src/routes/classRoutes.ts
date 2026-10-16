@@ -11,6 +11,7 @@ import {
 import {
   getClassSessions,
   createClassSession,
+  publishClassSession,
   updateClassSession,
   deleteClassSession,
 } from '../controllers/attendanceController';
@@ -37,7 +38,8 @@ router.get('/:id/students', requireTeacherOrAdmin, getClassStudents);
 // Sessions nested under classes
 router.get('/:id/sessions', requireTeacherOrAdmin, getClassSessions);
 router.post('/:id/sessions', requireTeacherOrAdmin, createClassSession);
-router.patch('/:id/sessions/:sessionId', requireAdmin, updateClassSession);
+router.post('/:id/sessions/:sessionId/publish', requireTeacherOrAdmin, publishClassSession);
+router.patch('/:id/sessions/:sessionId', requireTeacherOrAdmin, updateClassSession);
 router.delete('/:id/sessions/:sessionId', requireAdmin, deleteClassSession);
 
 export default router;

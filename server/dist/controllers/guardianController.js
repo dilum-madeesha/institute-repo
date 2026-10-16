@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.unlinkGuardianFromStudent = exports.updateStudentGuardianLink = exports.linkGuardianToStudent = exports.updateGuardian = exports.createGuardian = exports.getGuardians = void 0;
+exports.unlinkGuardianFromStudent = exports.updateStudentGuardianLink = exports.linkGuardianToStudent = exports.deleteGuardian = exports.updateGuardian = exports.createGuardian = exports.getGuardians = void 0;
 const Guardian_1 = require("../models/Guardian");
 const StudentGuardian_1 = require("../models/StudentGuardian");
 const Student_1 = require("../models/Student");
+const EmailNotification_1 = require("../models/EmailNotification");
+const User_1 = require("../models/User");
 const auditService_1 = require("../services/auditService");
 const getGuardians = async (req, res) => {
     try {
@@ -119,6 +121,34 @@ const updateGuardian = async (req, res) => {
     }
 };
 exports.updateGuardian = updateGuardian;
+const deleteGuardian = async (req, res) => {
+    try {
+        const guardian = await Guardian_1.Guardian.findById(req.params.id);
+        if (!guardian) {
+            res.status(404).json({ error: 'Guardian not found.' });
+            return;
+        }
+        await Promise.all([
+            StudentGuardian_1.StudentGuardian.deleteMany({ guardianId: guardian._id }),
+            EmailNotification_1.EmailNotification.updateMany({ guardianId: guardian._id }, { $set: { guardianId: null } }),
+            User_1.User.deleteMany({ role: 'PARENT', guardianId: guardian._id }),
+        ]);
+        await guardian.deleteOne();
+        await (0, auditService_1.logAudit)({
+            userId: req.user._id,
+            action: 'GUARDIAN_DELETED',
+            entityType: 'Guardian',
+            entityId: guardian._id.toString(),
+            details: { name: guardian.fullName, email: guardian.email },
+            ipAddress: req.ip,
+        });
+        res.json({ message: `Guardian ${guardian.fullName} was deleted.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to delete guardian' });
+    }
+};
+exports.deleteGuardian = deleteGuardian;
 const linkGuardianToStudent = async (req, res) => {
     try {
         const studentId = req.params.id;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, Search, Filter, RotateCw, AlertCircle, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { EmailNotification } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
 
@@ -20,7 +20,7 @@ export const NotificationList: React.FC = () => {
       if (statusFilter) params.status = statusFilter;
       if (search) params.search = search;
 
-      const res = await api.get('/notifications', { params });
+      const res = await apiService.getNotifications(params);
       setNotifications(res.data);
     } catch (err) {
       console.error('Failed to load notifications:', err);
@@ -37,7 +37,7 @@ export const NotificationList: React.FC = () => {
     try {
       setRetryingId(id);
       setActionMessage(null);
-      await api.post(`/notifications/${id}/retry`);
+      await apiService.retryNotification(id);
       setActionMessage('Notification queued for immediate dispatch.');
       fetchNotifications();
     } catch (err: any) {

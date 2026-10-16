@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.gradeExamSubmission = exports.getSubmissionsForExam = exports.submitExam = exports.getExamForTaking = exports.createExam = exports.getExamsByClass = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const Examination_1 = require("../models/Examination");
 const ExamSubmission_1 = require("../models/ExamSubmission");
 const role_1 = require("../middleware/role");
@@ -76,6 +80,14 @@ const createExam = async (req, res) => {
             res.status(400).json({ error: 'Class ID, title, and exam date are required.' });
             return;
         }
+        if (!mongoose_1.default.isValidObjectId(classId)) {
+            res.status(400).json({ error: 'A valid class is required.' });
+            return;
+        }
+        if (!(await (0, role_1.canAccessClass)(req.user._id.toString(), req.user.role, classId))) {
+            res.status(403).json({ error: 'You can create exams only for classes assigned to you.' });
+            return;
+        }
         const exam = await Examination_1.Examination.create({
             classId,
             title: title.trim(),
@@ -107,6 +119,15 @@ const getExamForTaking = async (req, res) => {
         const exam = await Examination_1.Examination.findById(examId);
         if (!exam) {
             res.status(404).json({ error: 'Exam not found' });
+            return;
+        }
+        if (!exam.isPublished) {
+            res.status(404).json({ error: 'Published exam not found.' });
+            return;
+        }
+        const hasAccess = await (0, role_1.canAccessClass)(req.user._id.toString(), req.user.role, exam.classId.toString(), req.user.studentId?.toString(), req.user.guardianId?.toString());
+        if (!hasAccess) {
+            res.status(403).json({ error: 'You are not authorized to access this exam.' });
             return;
         }
         // For students, strip out correctAnswer from the questions payload!
@@ -144,6 +165,14 @@ const submitExam = async (req, res) => {
         const exam = await Examination_1.Examination.findById(examId);
         if (!exam) {
             res.status(404).json({ error: 'Exam not found' });
+            return;
+        }
+        if (!exam.isPublished) {
+            res.status(404).json({ error: 'Published exam not found.' });
+            return;
+        }
+        if (!(await (0, role_1.canAccessClass)(user._id.toString(), user.role, exam.classId.toString(), user.studentId?.toString(), user.guardianId?.toString()))) {
+            res.status(403).json({ error: 'You are not authorized to submit answers for this exam.' });
             return;
         }
         const { answers } = req.body; // array of { questionId, answerText }

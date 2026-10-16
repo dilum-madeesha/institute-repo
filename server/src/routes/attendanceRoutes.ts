@@ -13,6 +13,8 @@ const router = Router();
 
 router.use(authenticate, requireTeacherOrAdmin);
 
+
+
 // Sessions endpoints
 router.get('/sessions/:sessionId/attendance', getSessionAttendance);
 router.put('/sessions/:sessionId/attendance', saveDraftAttendance);

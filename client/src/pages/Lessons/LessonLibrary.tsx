@@ -1,16 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Video, PlayCircle, Plus, Search, CheckCircle2, Clock, FileText, Download, ExternalLink, School, Pencil, Trash2 } from 'lucide-react';
-import api from '../../api/client';
+import { Video, PlayCircle, Plus, Search, CheckCircle2, FileText, Download, ExternalLink, School, Pencil, Archive } from 'lucide-react';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { Lesson, ClassItem } from '../../types';
 import { Modal } from '../../components/Modal';
 
+const youtubeEmbedUrl = (value?: string): string | null => {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    let videoId = '';
+    if (host === 'youtu.be') {
+      videoId = url.pathname.slice(1).split('/')[0];
+    } else if (host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com') {
+      videoId = url.searchParams.get('v') || url.pathname.match(/^\/(?:embed|shorts)\/([^/]+)/)?.[1] || '';
+    }
+    return /^[A-Za-z0-9_-]{6,20}$/.test(videoId)
+      ? `https://www.youtube-nocookie.com/embed/${videoId}`
+      : null;
+  } catch {
+    return null;
+  }
+};
+
 export const LessonLibrary: React.FC = () => {
-  const { user, isAdmin, isTeacher, isStudent } = useAuth();
+  const { isAdmin, isTeacher, isStudent } = useAuth();
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
   // Video Player Modal
@@ -23,8 +43,13 @@ export const LessonLibrary: React.FC = () => {
   const [description, setDescription] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [duration, setDuration] = useState('45 mins');
+  const [chapter, setChapter] = useState('');
+  const [topic, setTopic] = useState('');
+  const [order, setOrder] = useState('0');
+  const [publicationStatus, setPublicationStatus] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT');
   const [attachmentName, setAttachmentName] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
+  const [resourceFiles, setResourceFiles] = useState<File[]>([]);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [formError, setFormError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -33,17 +58,30 @@ export const LessonLibrary: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const classesRes = await api.get('/classes?status=ACTIVE');
+      setLoadError('');
+      const classesRes = await apiService.getClasses({ status: 'ACTIVE' });
+      if (!Array.isArray(classesRes.data)) {
+        throw new Error('The class list response was invalid. Refresh the page or contact an administrator.');
+      }
       setClasses(classesRes.data);
 
-      const targetClass = selectedClassId || (classesRes.data.length > 0 ? classesRes.data[0]._id : '');
-      if (targetClass) {
-        setSelectedClassId(targetClass);
-        const lessonsRes = await api.get(`/lessons/class/${targetClass}`);
-        setLessons(lessonsRes.data);
+      const targetClass = classesRes.data.some((item: ClassItem) => item._id === selectedClassId)
+        ? selectedClassId
+        : classesRes.data[0]?._id || '';
+      setSelectedClassId(targetClass);
+      if (!targetClass) {
+        setLessons([]);
+        return;
       }
-    } catch (err) {
+      const lessonsRes = await apiService.getClassLessons(targetClass);
+      if (!Array.isArray(lessonsRes.data)) {
+        throw new Error('The lesson list response was invalid. Refresh the page or contact an administrator.');
+      }
+      setLessons(lessonsRes.data);
+    } catch (err: any) {
       console.error('Failed to load lessons:', err);
+      setLoadError(err.response?.data?.error || err.message || 'Failed to load lessons. Please try again.');
+      setLessons([]);
     } finally {
       setLoading(false);
     }
@@ -55,13 +93,14 @@ export const LessonLibrary: React.FC = () => {
 
   const handleToggleProgress = async (lessonId: string) => {
     try {
-      await api.post(`/lessons/${lessonId}/progress`);
+      await apiService.markLessonProgress(lessonId);
       // Update local state
       setLessons((prev) =>
         prev.map((l) => (l._id === lessonId ? { ...l, isCompleted: !l.isCompleted } : l))
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to toggle progress:', err);
+      setActionError(err.response?.data?.error || 'Failed to update lesson progress.');
     }
   };
 
@@ -73,26 +112,57 @@ export const LessonLibrary: React.FC = () => {
         setFormError('Enter both the study material name and download URL.');
         return;
       }
+      if (resourceFiles.length > 5) {
+        setFormError('Upload no more than 5 resource files at a time.');
+        return;
+      }
+      if (resourceFiles.some((file) => file.size > 10 * 1024 * 1024)) {
+        setFormError('Each uploaded resource must be 10 MB or smaller.');
+        return;
+      }
+      if ((editingLesson?.attachments.length || 0) + resourceFiles.length > 10) {
+        setFormError('Lessons support up to 10 combined links and uploaded resources.');
+        return;
+      }
       setIsSubmitting(true);
-      const attachments = attachmentName.trim() && attachmentUrl.trim()
-        ? editingLesson
-          ? [
-              { name: attachmentName.trim(), fileUrl: attachmentUrl.trim(), fileType: 'PDF' },
-              ...(editingLesson.attachments || []).slice(1),
-            ]
-          : [{ name: attachmentName.trim(), fileUrl: attachmentUrl.trim(), fileType: 'PDF' }]
-        : editingLesson?.attachments || [];
+      let attachments = editingLesson?.attachments || [];
+      if (attachmentName.trim() && attachmentUrl.trim()) {
+        const linkIndex = attachments.findIndex((attachment) => !attachment.fileUrl.startsWith('/api/'));
+        const linkAttachment = {
+          name: attachmentName.trim(),
+          fileUrl: attachmentUrl.trim(),
+          fileType: 'LINK',
+        };
+        attachments = linkIndex < 0
+          ? [...attachments, linkAttachment]
+          : attachments.map((attachment, index) => index === linkIndex ? linkAttachment : attachment);
+      } else if (!editingLesson) {
+        attachments = [];
+      }
       const lessonData = {
         title,
         description,
         videoUrl,
         duration,
+        chapter,
+        topic,
+        order: Number(order),
+        publicationStatus,
         attachments,
       };
+      const formData = new FormData();
+      Object.entries(lessonData).forEach(([key, value]) => {
+        formData.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+      });
+      resourceFiles.forEach((file) => formData.append('files', file));
+      const targetClassId = editingLesson
+        ? selectedClassId
+        : classId || selectedClassId;
       if (editingLesson) {
-        await api.patch(`/lessons/${editingLesson._id}`, lessonData);
+        await apiService.updateLesson(editingLesson._id, formData);
       } else {
-        await api.post('/lessons', { classId: classId || selectedClassId, ...lessonData });
+        formData.append('classId', targetClassId);
+        await apiService.createLesson(formData);
       }
 
       setUploadModalOpen(false);
@@ -101,11 +171,17 @@ export const LessonLibrary: React.FC = () => {
       setDescription('');
       setVideoUrl('');
       setDuration('45 mins');
+      setChapter('');
+      setTopic('');
+      setOrder('0');
+      setPublicationStatus('DRAFT');
       setAttachmentName('');
       setAttachmentUrl('');
+      setResourceFiles([]);
       setActionError('');
-      if (selectedClassId) {
-        const res = await api.get(`/lessons/class/${selectedClassId}`);
+      if (targetClassId) {
+        setSelectedClassId(targetClassId);
+        const res = await apiService.getClassLessons(targetClassId);
         setLessons(res.data);
       }
     } catch (err: any) {
@@ -123,8 +199,14 @@ export const LessonLibrary: React.FC = () => {
     setDescription(lesson.description || '');
     setVideoUrl(lesson.videoUrl || '');
     setDuration(lesson.duration || '');
-    setAttachmentName(lesson.attachments?.[0]?.name || '');
-    setAttachmentUrl(lesson.attachments?.[0]?.fileUrl || '');
+    setChapter(lesson.chapter || '');
+    setTopic(lesson.topic || '');
+    setOrder(String(lesson.order ?? 0));
+    setPublicationStatus(lesson.publicationStatus === 'PUBLISHED' || (!lesson.publicationStatus && lesson.isPublished) ? 'PUBLISHED' : 'DRAFT');
+    const linkAttachment = lesson.attachments?.find((attachment) => !attachment.fileUrl.startsWith('/api/'));
+    setAttachmentName(linkAttachment?.name || '');
+    setAttachmentUrl(linkAttachment?.fileUrl || '');
+    setResourceFiles([]);
     setFormError('');
     setUploadModalOpen(true);
   };
@@ -137,26 +219,60 @@ export const LessonLibrary: React.FC = () => {
     setDescription('');
     setVideoUrl('');
     setDuration('45 mins');
+    setChapter('');
+    setTopic('');
+    setOrder('0');
+    setPublicationStatus('DRAFT');
     setAttachmentName('');
     setAttachmentUrl('');
+    setResourceFiles([]);
   };
 
-  const handleDeleteLesson = async (lesson: Lesson) => {
-    if (!window.confirm(`Delete the video lesson "${lesson.title}"? This cannot be undone.`)) return;
+  const handleArchiveLesson = async (lesson: Lesson) => {
+    if (!window.confirm(`Archive "${lesson.title}"? Student progress and lesson history will be preserved.`)) return;
     try {
       setActionError('');
-      await api.delete(`/lessons/${lesson._id}`);
+      await apiService.deleteLesson(lesson._id);
       setLessons((current) => current.filter((item) => item._id !== lesson._id));
     } catch (err: any) {
-      console.error('Failed to delete lesson:', err);
-      setActionError(err.response?.data?.error || 'Failed to delete lesson.');
+      console.error('Failed to archive lesson:', err);
+      setActionError(err.response?.data?.error || 'Failed to archive lesson.');
+    }
+  };
+
+  const handlePublishLesson = async (lesson: Lesson) => {
+    try {
+      setActionError('');
+      await apiService.updateLesson(lesson._id, { publicationStatus: 'PUBLISHED' });
+      const response = await apiService.getClassLessons(selectedClassId);
+      setLessons(response.data);
+    } catch (err: any) {
+      console.error('Failed to publish lesson:', err);
+      setActionError(err.response?.data?.error || 'Failed to publish lesson.');
+    }
+  };
+
+  const downloadProtectedFile = async (fileUrl: string, fileName: string) => {
+    try {
+      const response = await apiService.downloadLessonFile(fileUrl.replace(/^\/api\//, ''));
+      const objectUrl = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err: any) {
+      console.error('Failed to download lesson material:', err);
+      setActionError(err.response?.data?.error || 'Failed to download lesson material.');
     }
   };
 
   const filteredLessons = lessons.filter(
     (l) =>
       l.title.toLowerCase().includes(search.toLowerCase()) ||
-      (l.description && l.description.toLowerCase().includes(search.toLowerCase()))
+      (l.description && l.description.toLowerCase().includes(search.toLowerCase())) ||
+      (l.chapter && l.chapter.toLowerCase().includes(search.toLowerCase())) ||
+      (l.topic && l.topic.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -184,6 +300,15 @@ export const LessonLibrary: React.FC = () => {
         )}
       </div>
 
+      {loadError && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {loadError}
+          <button type="button" onClick={() => void fetchData()} className="ml-2 font-semibold underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Class Pills */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-none">
         {classes.map((cls) => {
@@ -204,6 +329,13 @@ export const LessonLibrary: React.FC = () => {
           );
         })}
       </div>
+
+      {!loading && !loadError && classes.length === 0 && isStudent && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          No active class enrollment is linked to this student account. Ask an administrator to check the student
+          profile, login account link, and enrollment dates.
+        </div>
+      )}
 
       {/* Search */}
       {actionError && (
@@ -243,11 +375,13 @@ export const LessonLibrary: React.FC = () => {
               <div>
                 {/* Video Thumbnail Header */}
                 <div
-                  onClick={() => setActiveVideo(lesson)}
-                  className="relative h-44 bg-slate-900 flex items-center justify-center cursor-pointer group overflow-hidden"
+                  onClick={() => {
+                    if (lesson.videoUrl) setActiveVideo(lesson);
+                  }}
+                  className={`relative h-44 bg-slate-900 flex items-center justify-center group overflow-hidden ${lesson.videoUrl ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                 >
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent" />
-                  <PlayCircle className="h-14 w-14 text-white group-hover:scale-110 group-hover:text-blue-400 transition transform relative z-10 drop-shadow-lg" />
+                  <PlayCircle className={`h-14 w-14 text-white transition transform relative z-10 drop-shadow-lg ${lesson.videoUrl ? 'group-hover:scale-110 group-hover:text-blue-400' : 'opacity-50'}`} />
                   <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs text-white/90 z-10">
                     <span className="font-semibold bg-black/40 backdrop-blur-sm px-2 py-0.5 rounded">
                       {lesson.duration || '40 mins'}
@@ -262,7 +396,21 @@ export const LessonLibrary: React.FC = () => {
                 </div>
 
                 <div className="p-5">
+                  {(isAdmin || isTeacher) && (
+                    <span className={`mb-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      lesson.publicationStatus === 'DRAFT' || (!lesson.publicationStatus && !lesson.isPublished)
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {lesson.publicationStatus || (lesson.isPublished ? 'PUBLISHED' : 'DRAFT')}
+                    </span>
+                  )}
                   <h3 className="text-base font-bold text-slate-900 line-clamp-1">{lesson.title}</h3>
+                  {(lesson.chapter || lesson.topic || lesson.classId?.subject) && (
+                    <p className="mt-1 text-xs font-semibold text-blue-700">
+                      {[lesson.classId?.subject, lesson.chapter && `Chapter ${lesson.chapter}`, lesson.topic].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
                     {lesson.description || 'Watch to master core concepts.'}
                   </p>
@@ -275,8 +423,13 @@ export const LessonLibrary: React.FC = () => {
                         <a
                           key={i}
                           href={att.fileUrl}
-                          target="_blank"
-                          rel="noreferrer"
+                          target={att.fileUrl.startsWith('/api/') ? undefined : '_blank'}
+                          rel={att.fileUrl.startsWith('/api/') ? undefined : 'noreferrer'}
+                          onClick={(event) => {
+                            if (!att.fileUrl.startsWith('/api/')) return;
+                            event.preventDefault();
+                            void downloadProtectedFile(att.fileUrl, att.name);
+                          }}
                           className="flex items-center justify-between p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-xs font-medium text-slate-700 transition"
                         >
                           <div className="flex items-center space-x-2 truncate">
@@ -294,11 +447,12 @@ export const LessonLibrary: React.FC = () => {
               <div className="p-5 pt-0">
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                   <button
-                    onClick={() => setActiveVideo(lesson)}
+                    onClick={() => lesson.videoUrl && setActiveVideo(lesson)}
+                    disabled={!lesson.videoUrl}
                     className="inline-flex items-center space-x-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
                   >
                     <PlayCircle className="h-4 w-4" />
-                    <span>Watch Lesson</span>
+                    <span>{lesson.videoUrl ? 'Watch Lesson' : 'Video not added'}</span>
                   </button>
 
                   {isStudent && (
@@ -317,6 +471,15 @@ export const LessonLibrary: React.FC = () => {
                 </div>
                 {(isAdmin || isTeacher) && (
                   <div className="mt-3 flex justify-end gap-2">
+                    {(lesson.publicationStatus === 'DRAFT' || (!lesson.publicationStatus && !lesson.isPublished)) && (
+                      <button
+                        type="button"
+                        onClick={() => void handlePublishLesson(lesson)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition"
+                      >
+                        Publish
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => openEditLesson(lesson)}
@@ -327,11 +490,11 @@ export const LessonLibrary: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteLesson(lesson)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                      onClick={() => void handleArchiveLesson(lesson)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>Delete</span>
+                      <Archive className="h-3.5 w-3.5" />
+                      <span>Archive</span>
                     </button>
                   </div>
                 )}
@@ -345,13 +508,14 @@ export const LessonLibrary: React.FC = () => {
       <Modal isOpen={!!activeVideo} onClose={() => setActiveVideo(null)} title={activeVideo?.title || 'Lesson Player'}>
         <div className="space-y-4">
           <div className="relative aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center">
-            {activeVideo?.videoUrl?.includes('youtube.com') || activeVideo?.videoUrl?.includes('youtu.be') ? (
+            {youtubeEmbedUrl(activeVideo?.videoUrl) ? (
               <iframe
-                src={activeVideo.videoUrl.replace('watch?v=', 'embed/')}
-                title={activeVideo.title}
+                src={youtubeEmbedUrl(activeVideo?.videoUrl) || undefined}
+                title={activeVideo?.title || 'Lesson video'}
                 className="w-full h-full border-0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
               />
             ) : (
               <div className="text-center p-6 text-white space-y-3">
@@ -416,11 +580,25 @@ export const LessonLibrary: React.FC = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Video URL * (YouTube, Vimeo, MP4)
+              Description and Learning Objectives
+            </label>
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Explain what students will learn in this lesson."
+              maxLength={10000}
+              className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Video URL {publicationStatus === 'PUBLISHED' ? '*' : '(required before publishing)'} (HTTPS)
             </label>
             <input
               type="url"
-              required
+              required={publicationStatus === 'PUBLISHED'}
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
               placeholder="https://www.youtube.com/watch?v=..."
@@ -443,7 +621,60 @@ export const LessonLibrary: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Study Material PDF Name
+                Chapter
+              </label>
+              <input
+                type="text"
+                value={chapter}
+                onChange={(e) => setChapter(e.target.value)}
+                placeholder="Chapter 1"
+                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Topic
+              </label>
+              <input
+                type="text"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="Derivatives"
+                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Lesson Sequence
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={order}
+                onChange={(e) => setOrder(e.target.value)}
+                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Publication
+              </label>
+              <select
+                value={publicationStatus}
+                onChange={(e) => setPublicationStatus(e.target.value as 'DRAFT' | 'PUBLISHED')}
+                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="DRAFT">Save as draft</option>
+                <option value="PUBLISHED">Publish now</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Resource Link Name
               </label>
               <input
                 type="text"
@@ -468,6 +699,24 @@ export const LessonLibrary: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Upload Learning Resources (PDF, DOCX, JPG, PNG, WEBP; up to 5 files, 10 MB each)
+            </label>
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
+              onChange={(e) => setResourceFiles(Array.from(e.target.files || []))}
+              className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm"
+            />
+            {resourceFiles.length > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                {resourceFiles.length} new file(s) selected. Existing uploaded resources are kept when editing.
+              </p>
+            )}
+          </div>
+
           <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
             <button
               type="button"
@@ -481,7 +730,7 @@ export const LessonLibrary: React.FC = () => {
               disabled={isSubmitting}
               className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition disabled:opacity-50"
             >
-              {isSubmitting ? (editingLesson ? 'Saving...' : 'Publishing...') : (editingLesson ? 'Save Changes' : 'Publish Lesson')}
+              {isSubmitting ? 'Saving...' : (editingLesson ? 'Save Changes' : publicationStatus === 'DRAFT' ? 'Save Draft' : 'Publish Lesson')}
             </button>
           </div>
         </form>

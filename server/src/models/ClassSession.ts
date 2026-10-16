@@ -10,6 +10,8 @@ export interface IClassSession extends Document {
   title?: string;
   timeZone?: string;
   status: SessionStatus;
+  isPublished: boolean;
+  publishedAt?: Date | null;
   createdBy: mongoose.Types.ObjectId;
   submittedBy?: mongoose.Types.ObjectId | null;
   submittedAt?: Date | null;
@@ -32,6 +34,8 @@ const ClassSessionSchema = new Schema<IClassSession>(
       default: 'DRAFT',
       index: true,
     },
+    isPublished: { type: Boolean, default: true, index: true },
+    publishedAt: { type: Date, default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     submittedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     submittedAt: { type: Date, default: null },
@@ -43,5 +47,6 @@ const ClassSessionSchema = new Schema<IClassSession>(
 );
 
 ClassSessionSchema.index({ classId: 1, sessionDate: 1 });
+ClassSessionSchema.index({ classId: 1, isPublished: 1, sessionDate: -1 });
 
 export const ClassSession = mongoose.model<IClassSession>('ClassSession', ClassSessionSchema);

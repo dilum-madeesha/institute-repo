@@ -12,6 +12,7 @@ router.post('/', studentController_1.createStudent);
 router.get('/:id', studentController_1.getStudentById);
 router.patch('/:id', studentController_1.updateStudent);
 router.patch('/:id/status', studentController_1.toggleStudentStatus);
+router.delete('/:id', role_1.requireAdmin, studentController_1.deleteStudent);
 router.get('/:id/attendance', studentController_1.getStudentAttendance);
 // Guardian linking sub-routes
 router.post('/:id/guardians', guardianController_1.linkGuardianToStudent);

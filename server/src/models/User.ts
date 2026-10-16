@@ -3,6 +3,22 @@ import mongoose, { Document, Schema } from 'mongoose';
 export type UserRole = 'ADMIN' | 'TEACHER' | 'STUDENT' | 'PARENT';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
 
+const userRoles: UserRole[] = ['ADMIN', 'TEACHER', 'STUDENT', 'PARENT'];
+
+export const normalizeUserRole = (value: unknown): UserRole | null => {
+  if (typeof value !== 'string') return null;
+  const normalizedRole = value.trim().toUpperCase();
+  return userRoles.includes(normalizedRole as UserRole)
+    ? normalizedRole as UserRole
+    : null;
+};
+
+export const normalizeAccountStatus = (value: unknown): 'ACTIVE' | 'INACTIVE' | null => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized === 'ACTIVE' || normalized === 'INACTIVE' ? normalized : null;
+};
+
 export interface IUser extends Document {
   fullName: string;
   email: string;

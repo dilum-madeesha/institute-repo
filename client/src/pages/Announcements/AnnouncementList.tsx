@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Plus, Search, Filter, AlertTriangle, Trash2, Calendar, School, Users } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { Announcement, ClassItem } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -25,7 +25,7 @@ export const AnnouncementList: React.FC = () => {
   const fetchAnnouncements = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/announcements');
+      const res = await apiService.getAnnouncements();
       setAnnouncements(res.data);
     } catch (err) {
       console.error('Failed to load announcements:', err);
@@ -37,7 +37,7 @@ export const AnnouncementList: React.FC = () => {
   const fetchClasses = async () => {
     if (isAdmin || isTeacher) {
       try {
-        const res = await api.get('/classes?status=ACTIVE');
+        const res = await apiService.getClasses({ status: 'ACTIVE' });
         setClasses(res.data);
       } catch (err) {
         console.error('Failed to load classes:', err);
@@ -56,7 +56,7 @@ export const AnnouncementList: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await api.post('/announcements', {
+      await apiService.createAnnouncement({
         title,
         content,
         priority,
@@ -80,7 +80,7 @@ export const AnnouncementList: React.FC = () => {
   const handleDeleteAnnouncement = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this announcement?')) return;
     try {
-      await api.delete(`/announcements/${id}`);
+      await apiService.deleteAnnouncement(id);
       fetchAnnouncements();
     } catch (err) {
       console.error('Failed to delete announcement:', err);

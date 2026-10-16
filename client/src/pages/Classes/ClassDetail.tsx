@@ -18,7 +18,7 @@ import {
   Video,
   BookOpen,
 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { ClassItem, ClassSession, Lesson, Assignment, Examination } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -85,11 +85,11 @@ export const ClassDetail: React.FC = () => {
     try {
       setLoading(true);
       const [classRes, sessionsRes, lessonsRes, asgRes, examsRes] = await Promise.all([
-        api.get(`/classes/${id}`),
-        api.get(`/classes/${id}/sessions`),
-        api.get(`/lessons/class/${id}`),
-        api.get(`/assignments/class/${id}`),
-        api.get(`/exams/class/${id}`),
+        apiService.getClass(id!),
+        apiService.getClassSessions(id!),
+        apiService.getClassLessons(id!),
+        apiService.getClassAssignments(id!),
+        apiService.getClassExams(id!),
       ]);
 
       setClassObj(classRes.data);
@@ -99,7 +99,7 @@ export const ClassDetail: React.FC = () => {
       setExams(examsRes.data);
 
       if (isAdmin || isTeacher) {
-        const studentsRes = await api.get(`/classes/${id}/students`);
+        const studentsRes = await apiService.getClassStudents(id!);
         setEnrolledStudents(studentsRes.data);
       }
     } catch (err) {
@@ -118,7 +118,7 @@ export const ClassDetail: React.FC = () => {
     e.preventDefault();
     try {
       const attachments = attachmentName && attachmentUrl ? [{ name: attachmentName, fileUrl: attachmentUrl, fileType: 'PDF' }] : [];
-      await api.post('/lessons', {
+      await apiService.createLesson({
         classId: id,
         title: lessonTitle,
         description: lessonDesc,
@@ -138,7 +138,7 @@ export const ClassDetail: React.FC = () => {
 
   const handleToggleLessonProgress = async (lessonId: string) => {
     try {
-      await api.post(`/lessons/${lessonId}/progress`);
+      await apiService.markLessonProgress(lessonId);
       fetchClassDetails();
     } catch (err) {
       console.error('Failed to toggle progress:', err);
@@ -149,7 +149,7 @@ export const ClassDetail: React.FC = () => {
   const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/assignments', {
+      await apiService.createAssignment({
         classId: id,
         title: asgTitle,
         description: asgDesc,
@@ -176,7 +176,7 @@ export const ClassDetail: React.FC = () => {
     e.preventDefault();
     if (!activeAsg) return;
     try {
-      await api.post(`/assignments/${activeAsg._id}/submit`, { submissionText });
+      await apiService.submitAssignment(activeAsg._id, { submissionText });
       setSubmitAsgModalOpen(false);
       fetchClassDetails();
     } catch (err: any) {
@@ -186,7 +186,7 @@ export const ClassDetail: React.FC = () => {
 
   const openSubmissionsForGrading = async (asgId: string) => {
     try {
-      const res = await api.get(`/assignments/${asgId}/submissions`);
+      const res = await apiService.getAssignmentSubmissions(asgId);
       setActiveSubmissions(res.data);
       setGradeModalOpen(true);
     } catch (err) {
@@ -196,7 +196,7 @@ export const ClassDetail: React.FC = () => {
 
   const handleSaveGrade = async (subId: string) => {
     try {
-      await api.patch(`/assignments/submissions/${subId}/grade`, {
+      await apiService.gradeAssignmentSubmission(subId, {
         marksAwarded,
         feedback: gradeFeedback,
       });
@@ -211,7 +211,7 @@ export const ClassDetail: React.FC = () => {
   // Exam handlers
   const startExam = async (examId: string) => {
     try {
-      const res = await api.get(`/exams/${examId}/take`);
+      const res = await apiService.getExamForTaking(examId);
       setExamToTake(res.data);
       setStudentAnswers({});
       setExamSubmittedResult(null);
@@ -231,7 +231,7 @@ export const ClassDetail: React.FC = () => {
     }));
 
     try {
-      const res = await api.post(`/exams/${examToTake._id}/submit`, { answers: answersArray });
+      const res = await apiService.submitExam(examToTake._id, { answers: answersArray });
       setExamSubmittedResult(res.data);
       fetchClassDetails();
     } catch (err) {
@@ -242,7 +242,7 @@ export const ClassDetail: React.FC = () => {
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await api.post(`/classes/${id}/sessions`, {
+      const res = await apiService.createClassSession(id!, {
         sessionDate,
         startTime,
         endTime,

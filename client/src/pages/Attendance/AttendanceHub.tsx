@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, School, Clock, CheckCircle2, AlertTriangle, ArrowRight, Plus, Search, Users, Mail, Pencil, Trash2 } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { ClassItem, ClassSession } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -37,7 +37,7 @@ export const AttendanceHub: React.FC = () => {
   const fetchClasses = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/classes?status=ACTIVE');
+      const res = await apiService.getClasses({ status: 'ACTIVE' });
       setClasses(res.data);
       if (res.data.length > 0 && !selectedClassId) {
         setSelectedClassId(res.data[0]._id);
@@ -52,7 +52,7 @@ export const AttendanceHub: React.FC = () => {
   const fetchSessions = async (classId: string) => {
     if (!classId) return;
     try {
-      const res = await api.get(`/classes/${classId}/sessions`);
+      const res = await apiService.getClassSessions(classId);
       setSessions(res.data);
     } catch (err) {
       console.error('Failed to load sessions:', err);
@@ -85,9 +85,9 @@ export const AttendanceHub: React.FC = () => {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Colombo',
       };
       if (editingSession) {
-        await api.patch(`/classes/${targetId}/sessions/${editingSession._id}`, sessionData);
+        await apiService.updateClassSession(targetId, editingSession._id, sessionData);
       } else {
-        await api.post(`/classes/${targetId}/sessions`, sessionData);
+        await apiService.createClassSession(targetId, sessionData);
       }
       setCreateModalOpen(false);
       setEditingSession(null);
@@ -140,13 +140,24 @@ export const AttendanceHub: React.FC = () => {
     try {
       setActionError('');
       setDeletingSessionId(session._id);
-      await api.delete(`/classes/${selectedClassId}/sessions/${session._id}`);
+      await apiService.deleteClassSession(selectedClassId, session._id);
       setSessions((current) => current.filter((item) => item._id !== session._id));
     } catch (err: any) {
       console.error('Failed to delete attendance session:', err);
       setActionError(err.response?.data?.error || 'Failed to delete attendance session.');
     } finally {
       setDeletingSessionId(null);
+    }
+  };
+
+  const handlePublishSession = async (session: ClassSession) => {
+    try {
+      setActionError('');
+      await apiService.publishClassSession(selectedClassId, session._id);
+      await fetchSessions(selectedClassId);
+    } catch (err: any) {
+      console.error('Failed to publish attendance session:', err);
+      setActionError(err.response?.data?.error || 'Failed to publish attendance session.');
     }
   };
 
@@ -246,6 +257,7 @@ export const AttendanceHub: React.FC = () => {
                       <Clock className="h-3.5 w-3.5 text-slate-400" />
                       <span>{sess.startTime || '09:00'} - {sess.endTime || '10:30'}</span>
                     </p>
+                    <p className="mt-1 text-xs text-slate-500">{activeClass?.subject || 'Class subject'}</p>
 
                     {sess.stats && (
                       <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
@@ -267,19 +279,30 @@ export const AttendanceHub: React.FC = () => {
 
                   <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-slate-400">
-                      {sess.status === 'SUBMITTED' ? 'Dispatched to parents' : 'Draft register'}
+                      {!sess.isPublished ? 'Not visible to students' : sess.status === 'SUBMITTED' ? 'Finalized' : 'Published to students'}
                     </span>
                     <div className="flex items-center gap-2">
+                      {!sess.isPublished && sess.status === 'DRAFT' && (
+                        <button
+                          type="button"
+                          onClick={() => void handlePublishSession(sess)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
+                        >
+                          Publish
+                        </button>
+                      )}
+                      {(isAdmin || isTeacher) && sess.status === 'DRAFT' && !sess.isPublished && (
+                        <button
+                          type="button"
+                          onClick={() => openEditSession(sess)}
+                          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg transition"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span>Edit</span>
+                        </button>
+                      )}
                       {isAdmin && (
                         <>
-                          <button
-                            type="button"
-                            onClick={() => openEditSession(sess)}
-                            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg transition"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            <span>Edit</span>
-                          </button>
                           <button
                             type="button"
                             onClick={() => void handleDeleteSession(sess)}

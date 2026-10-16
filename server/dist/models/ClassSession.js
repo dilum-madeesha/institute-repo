@@ -41,17 +41,22 @@ const ClassSessionSchema = new mongoose_1.Schema({
     startTime: { type: String, trim: true },
     endTime: { type: String, trim: true },
     title: { type: String, trim: true, default: '' },
+    timeZone: { type: String, trim: true, default: 'Asia/Colombo' },
     status: {
         type: String,
         enum: ['DRAFT', 'SUBMITTED', 'LOCKED'],
         default: 'DRAFT',
         index: true,
     },
+    isPublished: { type: Boolean, default: true, index: true },
+    publishedAt: { type: Date, default: null },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
     submittedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
     submittedAt: { type: Date, default: null },
+    autoFinalizedAt: { type: Date, default: null },
 }, {
     timestamps: true,
 });
 ClassSessionSchema.index({ classId: 1, sessionDate: 1 });
+ClassSessionSchema.index({ classId: 1, isPublished: 1, sessionDate: -1 });
 exports.ClassSession = mongoose_1.default.model('ClassSession', ClassSessionSchema);

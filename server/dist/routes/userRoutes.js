@@ -12,4 +12,5 @@ router.get('/:id', userController_1.getUserById);
 router.patch('/:id', userController_1.updateUser);
 router.patch('/:id/status', userController_1.toggleUserStatus);
 router.post('/:id/reset-password', userController_1.resetUserPassword);
+router.delete('/:id', userController_1.deleteTeacher);
 exports.default = router;

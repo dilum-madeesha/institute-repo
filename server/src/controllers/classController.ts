@@ -16,6 +16,7 @@ import { Announcement } from '../models/Announcement';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessClass } from '../middleware/role';
 import { logAudit } from '../services/auditService';
+import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export const getClasses = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -25,12 +26,21 @@ export const getClasses = async (req: AuthRequest, res: Response): Promise<void>
     // Filter classes per role
     if (req.user!.role === 'TEACHER') {
       filter.teachers = req.user!._id;
-    } else if (req.user!.role === 'STUDENT' && req.user!.studentId) {
-      const enrollments = await Enrollment.find({ studentId: req.user!.studentId, status: 'ACTIVE' });
+    } else if (req.user!.role === 'STUDENT') {
+      if (!req.user!.studentId) {
+        res.status(403).json({
+          error: 'This student login is not linked to a student profile. Ask an administrator to link the account.',
+          code: 'STUDENT_PROFILE_NOT_LINKED',
+        });
+        return;
+      }
+      const enrollments = await Enrollment.find(currentEnrollmentFilter(req.user!.studentId));
       filter._id = { $in: enrollments.map((e) => e.classId) };
     } else if (req.user!.role === 'PARENT' && req.user!.guardianId) {
       const links = await StudentGuardian.find({ guardianId: req.user!.guardianId });
-      const enrollments = await Enrollment.find({ studentId: { $in: links.map((l) => l.studentId) }, status: 'ACTIVE' });
+      const enrollments = await Enrollment.find(
+        currentEnrollmentFilter({ $in: links.map((l) => l.studentId) })
+      );
       filter._id = { $in: enrollments.map((e) => e.classId) };
     }
 

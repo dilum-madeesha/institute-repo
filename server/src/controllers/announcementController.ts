@@ -5,6 +5,7 @@ import { StudentGuardian } from '../models/StudentGuardian';
 import { ClassModel } from '../models/Class';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../services/auditService';
+import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export const getAnnouncements = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -24,12 +25,12 @@ export const getAnnouncements = async (req: AuthRequest, res: Response): Promise
       const classes = await ClassModel.find({ teachers: user._id });
       allowedClassIds = classes.map((c) => c._id);
     } else if (user.role === 'STUDENT' && user.studentId) {
-      const enrollments = await Enrollment.find({ studentId: user.studentId, status: 'ACTIVE' });
+      const enrollments = await Enrollment.find(currentEnrollmentFilter(user.studentId));
       allowedClassIds = enrollments.map((e) => e.classId);
     } else if (user.role === 'PARENT' && user.guardianId) {
       const links = await StudentGuardian.find({ guardianId: user.guardianId });
       const childIds = links.map((l) => l.studentId);
-      const enrollments = await Enrollment.find({ studentId: { $in: childIds }, status: 'ACTIVE' });
+      const enrollments = await Enrollment.find(currentEnrollmentFilter({ $in: childIds }));
       allowedClassIds = enrollments.map((e) => e.classId);
     }
 

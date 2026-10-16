@@ -16,19 +16,24 @@ const login = async (req, res) => {
             res.status(400).json({ error: 'Please enter both email and password.' });
             return;
         }
-        const normalizedEmail = email.toLowerCase().trim();
-        const user = await User_1.User.findOne({ email: normalizedEmail });
+        const normalizedEmail = String(email).toLowerCase().trim();
+        const escapedEmail = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matchingUsers = await User_1.User.find({
+            email: { $regex: `^${escapedEmail}$`, $options: 'i' },
+        }).limit(2);
+        const user = matchingUsers.length === 1 ? matchingUsers[0] : null;
         if (!user) {
             await (0, auditService_1.logAudit)({
                 action: 'LOGIN_FAILED',
                 entityType: 'User',
-                details: { email: normalizedEmail, reason: 'User not found' },
+                details: { email: normalizedEmail, reason: 'User not found or email is ambiguous' },
                 ipAddress: req.ip,
             });
             res.status(401).json({ error: 'Invalid email or password.' });
             return;
         }
-        if (user.status !== 'ACTIVE') {
+        const normalizedStatus = (0, User_1.normalizeAccountStatus)(user.status);
+        if (normalizedStatus !== 'ACTIVE') {
             await (0, auditService_1.logAudit)({
                 userId: user._id,
                 action: 'LOGIN_BLOCKED',
@@ -39,6 +44,15 @@ const login = async (req, res) => {
             });
             res.status(403).json({ error: 'Your account is deactivated. Please contact an administrator.' });
             return;
+        }
+        user.status = normalizedStatus;
+        const normalizedRole = (0, User_1.normalizeUserRole)(user.role);
+        if (!normalizedRole) {
+            res.status(403).json({ error: 'This account has an unsupported role. Please contact an administrator.' });
+            return;
+        }
+        if (user.role !== normalizedRole) {
+            user.role = normalizedRole;
         }
         const isMatch = await bcryptjs_1.default.compare(password, user.passwordHash);
         if (!isMatch) {

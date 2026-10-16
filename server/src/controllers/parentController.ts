@@ -128,10 +128,10 @@ export const getParentDashboard = async (req: AuthRequest, res: Response): Promi
           id: s._id,
           title: s.assignmentId?.title,
           className: s.classId?.name,
-          status: s.status,
-          marksAwarded: s.marksAwarded,
+          status: s.status === 'GRADED' && !s.gradeReleasedAt ? 'SUBMITTED' : s.status,
+          marksAwarded: s.gradeReleasedAt ? s.marksAwarded : null,
           totalMarks: s.assignmentId?.totalMarks,
-          feedback: s.feedback,
+          feedback: s.gradeReleasedAt ? s.feedback : '',
           submittedAt: s.submittedAt,
         })),
         recentExams: examSubmissions.map((ex: any) => ({

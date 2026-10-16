@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getRecordChangeLogs = exports.correctAttendanceRecord = exports.submitAttendance = exports.saveDraftAttendance = exports.getSessionAttendance = exports.createClassSession = exports.getClassSessions = void 0;
+exports.getRecordChangeLogs = exports.correctAttendanceRecord = exports.submitAttendance = exports.saveDraftAttendance = exports.getSessionAttendance = exports.deleteClassSession = exports.publishClassSession = exports.updateClassSession = exports.createClassSession = exports.getClassSessions = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const ClassSession_1 = require("../models/ClassSession");
 const AttendanceRecord_1 = require("../models/AttendanceRecord");
 const AttendanceChangeLog_1 = require("../models/AttendanceChangeLog");
@@ -9,6 +13,46 @@ const EmailNotification_1 = require("../models/EmailNotification");
 const role_1 = require("../middleware/role");
 const notificationWorker_1 = require("../services/notificationWorker");
 const auditService_1 = require("../services/auditService");
+const attendanceWindow_1 = require("../services/attendanceWindow");
+const attendanceStatuses = ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED'];
+const saveAttendanceItems = async (session, items, markedBy) => {
+    if (!Array.isArray(items))
+        return 'Expected items array with attendance records.';
+    const eligibleEnrollments = await Enrollment_1.Enrollment.find({
+        classId: session.classId,
+        startDate: { $lte: session.sessionDate },
+        $or: [{ endDate: null }, { endDate: { $gte: session.sessionDate } }],
+        status: { $in: ['ACTIVE', 'COMPLETED'] },
+    }).populate('studentId', 'status');
+    const eligibleStudentIds = new Set(eligibleEnrollments
+        .map((enrollment) => enrollment.studentId)
+        .filter((student) => student?._id && student.status === 'ACTIVE')
+        .map((student) => student._id.toString()));
+    const seenStudentIds = new Set();
+    for (const item of items) {
+        if (!item || !mongoose_1.default.isValidObjectId(item.studentId) || !attendanceStatuses.includes(item.status)) {
+            return 'Each attendance item must include a valid student ID and attendance status.';
+        }
+        const studentId = item.studentId.toString();
+        if (!eligibleStudentIds.has(studentId)) {
+            return 'Attendance can only be recorded for students enrolled in this class on the session date.';
+        }
+        if (seenStudentIds.has(studentId)) {
+            return 'A student can appear only once in an attendance update.';
+        }
+        seenStudentIds.add(studentId);
+    }
+    for (const item of items) {
+        await AttendanceRecord_1.AttendanceRecord.findOneAndUpdate({ classSessionId: session._id, studentId: item.studentId }, {
+            status: item.status,
+            arrivalTime: typeof item.arrivalTime === 'string' ? item.arrivalTime : null,
+            note: typeof item.note === 'string' ? item.note : null,
+            markedBy,
+            markedAt: new Date(),
+        }, { upsert: true, new: true });
+    }
+    return null;
+};
 const getClassSessions = async (req, res) => {
     try {
         const classId = req.params.id;
@@ -67,18 +111,45 @@ const createClassSession = async (req, res) => {
             res.status(403).json({ error: 'Access denied.' });
             return;
         }
-        const { sessionDate, startTime, endTime, title } = req.body;
+        const { sessionDate, startTime, endTime, title, timeZone } = req.body;
         if (!sessionDate) {
             res.status(400).json({ error: 'Session date is required.' });
             return;
         }
+        if (Number.isNaN(new Date(sessionDate).getTime())) {
+            res.status(400).json({ error: 'A valid session date is required.' });
+            return;
+        }
+        if (timeZone !== undefined && !(0, attendanceWindow_1.isValidTimeZone)(String(timeZone))) {
+            res.status(400).json({ error: 'A valid session time zone is required.' });
+            return;
+        }
+        if ((startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime))) ||
+            (endTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)))) {
+            res.status(400).json({ error: 'Session start and end times must use HH:MM format.' });
+            return;
+        }
+        const sessionDateValue = new Date(sessionDate);
+        const sessionTimeZone = timeZone || 'Asia/Colombo';
+        const { start, end } = (0, attendanceWindow_1.getAttendanceWindow)({
+            sessionDate: sessionDateValue,
+            startTime,
+            endTime,
+            timeZone: sessionTimeZone,
+        });
+        if (start >= end) {
+            res.status(400).json({ error: 'Session end time must be after the start time.' });
+            return;
+        }
         const session = await ClassSession_1.ClassSession.create({
             classId,
-            sessionDate: new Date(sessionDate),
+            sessionDate: sessionDateValue,
             startTime: startTime ? startTime.trim() : undefined,
             endTime: endTime ? endTime.trim() : undefined,
             title: title ? title.trim() : undefined,
+            timeZone: sessionTimeZone,
             status: 'DRAFT',
+            isPublished: false,
             createdBy: req.user._id,
         });
         await (0, auditService_1.logAudit)({
@@ -96,6 +167,154 @@ const createClassSession = async (req, res) => {
     }
 };
 exports.createClassSession = createClassSession;
+const updateClassSession = async (req, res) => {
+    try {
+        const { id: classId, sessionId } = req.params;
+        const session = await ClassSession_1.ClassSession.findOne({ _id: sessionId, classId });
+        if (!session) {
+            res.status(404).json({ error: 'Attendance session not found.' });
+            return;
+        }
+        if (!(await (0, role_1.canAccessClass)(req.user._id.toString(), req.user.role, String(classId)))) {
+            res.status(403).json({ error: 'You can manage attendance only for classes assigned to you.' });
+            return;
+        }
+        if (session.status !== 'DRAFT' || session.isPublished) {
+            res.status(409).json({ error: 'Published or finalized attendance sessions cannot be edited.' });
+            return;
+        }
+        const { sessionDate, startTime, endTime, title, timeZone } = req.body;
+        if (sessionDate !== undefined) {
+            const parsedDate = new Date(sessionDate);
+            if (Number.isNaN(parsedDate.getTime())) {
+                res.status(400).json({ error: 'A valid session date is required.' });
+                return;
+            }
+            session.sessionDate = parsedDate;
+        }
+        if (startTime !== undefined) {
+            if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime))) {
+                res.status(400).json({ error: 'Session start time must use HH:MM format.' });
+                return;
+            }
+            session.startTime = String(startTime).trim();
+        }
+        if (endTime !== undefined) {
+            if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime))) {
+                res.status(400).json({ error: 'Session end time must use HH:MM format.' });
+                return;
+            }
+            session.endTime = String(endTime).trim();
+        }
+        if (title !== undefined)
+            session.title = String(title).trim();
+        if (timeZone !== undefined) {
+            if (!(0, attendanceWindow_1.isValidTimeZone)(String(timeZone))) {
+                res.status(400).json({ error: 'A valid session time zone is required.' });
+                return;
+            }
+            session.timeZone = String(timeZone);
+        }
+        const { start, end } = (0, attendanceWindow_1.getAttendanceWindow)(session);
+        if (start >= end) {
+            res.status(400).json({ error: 'Session end time must be after the start time.' });
+            return;
+        }
+        await session.save();
+        await (0, auditService_1.logAudit)({
+            userId: req.user._id,
+            action: 'SESSION_UPDATED',
+            entityType: 'ClassSession',
+            entityId: session._id.toString(),
+            details: { classId, date: session.sessionDate, title: session.title },
+            ipAddress: req.ip,
+        });
+        res.json(session);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to update session' });
+    }
+};
+exports.updateClassSession = updateClassSession;
+const publishClassSession = async (req, res) => {
+    try {
+        const { id: classId, sessionId } = req.params;
+        const session = await ClassSession_1.ClassSession.findOne({ _id: sessionId, classId });
+        if (!session) {
+            res.status(404).json({ error: 'Attendance session not found.' });
+            return;
+        }
+        if (!(await (0, role_1.canAccessClass)(req.user._id.toString(), req.user.role, String(classId)))) {
+            res.status(403).json({ error: 'You can publish attendance only for classes assigned to you.' });
+            return;
+        }
+        if (session.status !== 'DRAFT') {
+            res.status(409).json({ error: 'Only an open attendance session can be published.' });
+            return;
+        }
+        if (session.isPublished) {
+            res.json(session);
+            return;
+        }
+        session.isPublished = true;
+        session.publishedAt = new Date();
+        await session.save();
+        await (0, auditService_1.logAudit)({
+            userId: req.user._id,
+            action: 'SESSION_PUBLISHED',
+            entityType: 'ClassSession',
+            entityId: session._id.toString(),
+            details: { classId, sessionDate: session.sessionDate },
+            ipAddress: req.ip,
+        });
+        res.json(session);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to publish attendance session' });
+    }
+};
+exports.publishClassSession = publishClassSession;
+const deleteClassSession = async (req, res) => {
+    try {
+        const { id: classId, sessionId } = req.params;
+        const session = await ClassSession_1.ClassSession.findOne({ _id: sessionId, classId });
+        if (!session) {
+            res.status(404).json({ error: 'Attendance session not found.' });
+            return;
+        }
+        const records = await AttendanceRecord_1.AttendanceRecord.find({ classSessionId: session._id }).select('_id');
+        const attendanceRecordIds = records.map((record) => record._id);
+        await Promise.all([
+            EmailNotification_1.EmailNotification.deleteMany({
+                $or: [
+                    { classSessionId: session._id },
+                    { attendanceRecordId: { $in: attendanceRecordIds } },
+                ],
+            }),
+            AttendanceChangeLog_1.AttendanceChangeLog.deleteMany({
+                $or: [
+                    { classSessionId: session._id },
+                    { attendanceRecordId: { $in: attendanceRecordIds } },
+                ],
+            }),
+            AttendanceRecord_1.AttendanceRecord.deleteMany({ classSessionId: session._id }),
+        ]);
+        await session.deleteOne();
+        await (0, auditService_1.logAudit)({
+            userId: req.user._id,
+            action: 'SESSION_DELETED',
+            entityType: 'ClassSession',
+            entityId: session._id.toString(),
+            details: { classId, date: session.sessionDate, title: session.title },
+            ipAddress: req.ip,
+        });
+        res.json({ message: 'Attendance session and its related records were deleted.' });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to delete attendance session' });
+    }
+};
+exports.deleteClassSession = deleteClassSession;
 const getSessionAttendance = async (req, res) => {
     try {
         const { sessionId } = req.params;
@@ -175,9 +394,13 @@ const getSessionAttendance = async (req, res) => {
                 startTime: session.startTime,
                 endTime: session.endTime,
                 title: session.title,
+                timeZone: session.timeZone,
                 status: session.status,
+                isPublished: session.isPublished,
+                publishedAt: session.publishedAt,
                 submittedAt: session.submittedAt,
                 submittedBy: session.submittedBy,
+                autoFinalizedAt: session.autoFinalizedAt,
             },
             roster: studentRoster,
         });
@@ -200,8 +423,8 @@ const saveDraftAttendance = async (req, res) => {
             res.status(404).json({ error: 'Session not found' });
             return;
         }
-        if (session.status === 'LOCKED') {
-            res.status(400).json({ error: 'Cannot modify a locked session.' });
+        if (session.status !== 'DRAFT') {
+            res.status(400).json({ error: 'This attendance session is finalized and can no longer be edited.' });
             return;
         }
         const hasAccess = await (0, role_1.canAccessClass)(req.user._id.toString(), req.user.role, session.classId.toString());
@@ -209,16 +432,10 @@ const saveDraftAttendance = async (req, res) => {
             res.status(403).json({ error: 'Access denied.' });
             return;
         }
-        for (const item of items) {
-            if (!item.studentId || !item.status)
-                continue;
-            await AttendanceRecord_1.AttendanceRecord.findOneAndUpdate({ classSessionId: session._id, studentId: item.studentId }, {
-                status: item.status,
-                arrivalTime: item.arrivalTime || null,
-                note: item.note || null,
-                markedBy: req.user._id,
-                markedAt: new Date(),
-            }, { upsert: true, new: true });
+        const validationError = await saveAttendanceItems(session, items, req.user._id);
+        if (validationError) {
+            res.status(400).json({ error: validationError });
+            return;
         }
         res.json({ message: 'Attendance draft saved successfully.' });
     }
@@ -236,8 +453,8 @@ const submitAttendance = async (req, res) => {
             res.status(404).json({ error: 'Session not found' });
             return;
         }
-        if (session.status === 'LOCKED') {
-            res.status(400).json({ error: 'Cannot modify a locked session.' });
+        if (session.status !== 'DRAFT') {
+            res.status(400).json({ error: 'This attendance session is finalized and can no longer be submitted.' });
             return;
         }
         const hasAccess = await (0, role_1.canAccessClass)(req.user._id.toString(), req.user.role, session.classId.toString());
@@ -245,18 +462,16 @@ const submitAttendance = async (req, res) => {
             res.status(403).json({ error: 'Access denied.' });
             return;
         }
-        // Save/update any provided items
-        if (Array.isArray(items)) {
-            for (const item of items) {
-                if (!item.studentId || !item.status)
-                    continue;
-                await AttendanceRecord_1.AttendanceRecord.findOneAndUpdate({ classSessionId: session._id, studentId: item.studentId }, {
-                    status: item.status,
-                    arrivalTime: item.arrivalTime || null,
-                    note: item.note || null,
-                    markedBy: req.user._id,
-                    markedAt: new Date(),
-                }, { upsert: true, new: true });
+        if ((0, attendanceWindow_1.getAttendanceWindowState)(session) === 'CLOSED') {
+            await (0, attendanceWindow_1.finalizeExpiredAttendanceSessions)();
+            res.status(409).json({ error: 'The attendance session has timed out and was finalized automatically.' });
+            return;
+        }
+        if (items !== undefined) {
+            const validationError = await saveAttendanceItems(session, items, req.user._id);
+            if (validationError) {
+                res.status(400).json({ error: validationError });
+                return;
             }
         }
         // Verify all enrolled students are marked

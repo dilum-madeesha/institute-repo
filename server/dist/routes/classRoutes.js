@@ -13,10 +13,14 @@ router.get('/:id', classController_1.getClassById);
 // Admin-only class creation & status
 router.post('/', role_1.requireAdmin, classController_1.createClass);
 router.patch('/:id/status', role_1.requireAdmin, classController_1.toggleClassStatus);
+router.delete('/:id', role_1.requireAdmin, classController_1.deleteClass);
 // Teacher or Admin modification & roster viewing
 router.patch('/:id', role_1.requireTeacherOrAdmin, classController_1.updateClass);
 router.get('/:id/students', role_1.requireTeacherOrAdmin, classController_1.getClassStudents);
 // Sessions nested under classes
 router.get('/:id/sessions', role_1.requireTeacherOrAdmin, attendanceController_1.getClassSessions);
 router.post('/:id/sessions', role_1.requireTeacherOrAdmin, attendanceController_1.createClassSession);
+router.post('/:id/sessions/:sessionId/publish', role_1.requireTeacherOrAdmin, attendanceController_1.publishClassSession);
+router.patch('/:id/sessions/:sessionId', role_1.requireTeacherOrAdmin, attendanceController_1.updateClassSession);
+router.delete('/:id/sessions/:sessionId', role_1.requireAdmin, attendanceController_1.deleteClassSession);
 exports.default = router;

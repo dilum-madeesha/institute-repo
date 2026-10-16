@@ -4,6 +4,7 @@ import { ClassModel } from '../models/Class';
 import { Enrollment } from '../models/Enrollment';
 import { StudentGuardian } from '../models/StudentGuardian';
 import { UserRole } from '../models/User';
+import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction): void => {
   if (!req.user) {
@@ -61,11 +62,7 @@ export const canAccessClass = async (
   }
 
   if (userRole === 'STUDENT' && studentId) {
-    const activeEnrollment = await Enrollment.findOne({
-      classId,
-      studentId,
-      status: 'ACTIVE',
-    });
+    const activeEnrollment = await Enrollment.findOne(currentEnrollmentFilter(studentId, classId));
     return !!activeEnrollment;
   }
 
@@ -73,11 +70,9 @@ export const canAccessClass = async (
     // Find children linked to this parent
     const links = await StudentGuardian.find({ guardianId });
     const childStudentIds = links.map((l) => l.studentId);
-    const activeEnrollment = await Enrollment.findOne({
-      classId,
-      studentId: { $in: childStudentIds },
-      status: 'ACTIVE',
-    });
+    const activeEnrollment = await Enrollment.findOne(
+      currentEnrollmentFilter({ $in: childStudentIds }, classId)
+    );
     return !!activeEnrollment;
   }
 

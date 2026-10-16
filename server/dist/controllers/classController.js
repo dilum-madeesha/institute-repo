@@ -1,12 +1,23 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getClassStudents = exports.toggleClassStatus = exports.updateClass = exports.createClass = exports.getClassById = exports.getClasses = void 0;
+exports.getClassStudents = exports.deleteClass = exports.toggleClassStatus = exports.updateClass = exports.createClass = exports.getClassById = exports.getClasses = void 0;
 const Class_1 = require("../models/Class");
 const Enrollment_1 = require("../models/Enrollment");
 const ClassSession_1 = require("../models/ClassSession");
 const StudentGuardian_1 = require("../models/StudentGuardian");
+const AttendanceRecord_1 = require("../models/AttendanceRecord");
+const AttendanceChangeLog_1 = require("../models/AttendanceChangeLog");
+const Assignment_1 = require("../models/Assignment");
+const AssignmentSubmission_1 = require("../models/AssignmentSubmission");
+const Examination_1 = require("../models/Examination");
+const ExamSubmission_1 = require("../models/ExamSubmission");
+const Lesson_1 = require("../models/Lesson");
+const LessonProgress_1 = require("../models/LessonProgress");
+const EmailNotification_1 = require("../models/EmailNotification");
+const Announcement_1 = require("../models/Announcement");
 const role_1 = require("../middleware/role");
 const auditService_1 = require("../services/auditService");
+const enrollmentAccess_1 = require("../services/enrollmentAccess");
 const getClasses = async (req, res) => {
     try {
         const { status, search, subject } = req.query;
@@ -15,13 +26,20 @@ const getClasses = async (req, res) => {
         if (req.user.role === 'TEACHER') {
             filter.teachers = req.user._id;
         }
-        else if (req.user.role === 'STUDENT' && req.user.studentId) {
-            const enrollments = await Enrollment_1.Enrollment.find({ studentId: req.user.studentId, status: 'ACTIVE' });
+        else if (req.user.role === 'STUDENT') {
+            if (!req.user.studentId) {
+                res.status(403).json({
+                    error: 'This student login is not linked to a student profile. Ask an administrator to link the account.',
+                    code: 'STUDENT_PROFILE_NOT_LINKED',
+                });
+                return;
+            }
+            const enrollments = await Enrollment_1.Enrollment.find((0, enrollmentAccess_1.currentEnrollmentFilter)(req.user.studentId));
             filter._id = { $in: enrollments.map((e) => e.classId) };
         }
         else if (req.user.role === 'PARENT' && req.user.guardianId) {
             const links = await StudentGuardian_1.StudentGuardian.find({ guardianId: req.user.guardianId });
-            const enrollments = await Enrollment_1.Enrollment.find({ studentId: { $in: links.map((l) => l.studentId) }, status: 'ACTIVE' });
+            const enrollments = await Enrollment_1.Enrollment.find((0, enrollmentAccess_1.currentEnrollmentFilter)({ $in: links.map((l) => l.studentId) }));
             filter._id = { $in: enrollments.map((e) => e.classId) };
         }
         if (status)
@@ -197,6 +215,71 @@ const toggleClassStatus = async (req, res) => {
     }
 };
 exports.toggleClassStatus = toggleClassStatus;
+const deleteClass = async (req, res) => {
+    try {
+        const classObj = await Class_1.ClassModel.findById(req.params.id);
+        if (!classObj) {
+            res.status(404).json({ error: 'Class not found.' });
+            return;
+        }
+        const [sessions, assignments, examinations, lessons] = await Promise.all([
+            ClassSession_1.ClassSession.find({ classId: classObj._id }).select('_id'),
+            Assignment_1.Assignment.find({ classId: classObj._id }).select('_id'),
+            Examination_1.Examination.find({ classId: classObj._id }).select('_id'),
+            Lesson_1.Lesson.find({ classId: classObj._id }).select('_id'),
+        ]);
+        const sessionIds = sessions.map((session) => session._id);
+        const assignmentIds = assignments.map((assignment) => assignment._id);
+        const examinationIds = examinations.map((examination) => examination._id);
+        const lessonIds = lessons.map((lesson) => lesson._id);
+        const attendanceRecords = await AttendanceRecord_1.AttendanceRecord.find({ classSessionId: { $in: sessionIds } }).select('_id');
+        const attendanceRecordIds = attendanceRecords.map((record) => record._id);
+        await Promise.all([
+            EmailNotification_1.EmailNotification.deleteMany({
+                $or: [
+                    { classSessionId: { $in: sessionIds } },
+                    { attendanceRecordId: { $in: attendanceRecordIds } },
+                ],
+            }),
+            AttendanceChangeLog_1.AttendanceChangeLog.deleteMany({
+                $or: [
+                    { classSessionId: { $in: sessionIds } },
+                    { attendanceRecordId: { $in: attendanceRecordIds } },
+                ],
+            }),
+            AttendanceRecord_1.AttendanceRecord.deleteMany({ classSessionId: { $in: sessionIds } }),
+            ClassSession_1.ClassSession.deleteMany({ classId: classObj._id }),
+            Enrollment_1.Enrollment.deleteMany({ classId: classObj._id }),
+            AssignmentSubmission_1.AssignmentSubmission.deleteMany({
+                $or: [{ classId: classObj._id }, { assignmentId: { $in: assignmentIds } }],
+            }),
+            Assignment_1.Assignment.deleteMany({ classId: classObj._id }),
+            ExamSubmission_1.ExamSubmission.deleteMany({
+                $or: [{ classId: classObj._id }, { examId: { $in: examinationIds } }],
+            }),
+            Examination_1.Examination.deleteMany({ classId: classObj._id }),
+            LessonProgress_1.LessonProgress.deleteMany({
+                $or: [{ classId: classObj._id }, { lessonId: { $in: lessonIds } }],
+            }),
+            Lesson_1.Lesson.deleteMany({ classId: classObj._id }),
+            Announcement_1.Announcement.deleteMany({ classId: classObj._id }),
+        ]);
+        await classObj.deleteOne();
+        await (0, auditService_1.logAudit)({
+            userId: req.user._id,
+            action: 'CLASS_DELETED',
+            entityType: 'Class',
+            entityId: classObj._id.toString(),
+            details: { name: classObj.name, classCode: classObj.classCode },
+            ipAddress: req.ip,
+        });
+        res.json({ message: `Class ${classObj.classCode} was deleted.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Failed to delete class' });
+    }
+};
+exports.deleteClass = deleteClass;
 const getClassStudents = async (req, res) => {
     try {
         const classId = req.params.id;

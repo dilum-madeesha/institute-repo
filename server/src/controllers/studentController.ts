@@ -229,7 +229,7 @@ export const updateStudent = async (req: AuthRequest, res: Response): Promise<vo
 
     const { firstName, lastName, studentNumber, displayName, dateOfBirth, email, phone, address, notes, password } = req.body;
 
-    const studentAccount = await User.findOne({ role: 'STUDENT', studentId: student._id });
+    let studentAccount = await User.findOne({ role: 'STUDENT', studentId: student._id });
     if (password && req.user!.role !== 'ADMIN') {
       res.status(403).json({ error: 'Only administrators can manage student login credentials.' });
       return;
@@ -237,6 +237,13 @@ export const updateStudent = async (req: AuthRequest, res: Response): Promise<vo
     const normalizedEmail = email !== undefined
       ? String(email).trim().toLowerCase()
       : student.email || studentAccount?.email || '';
+    if (!studentAccount && normalizedEmail) {
+      studentAccount = await User.findOne({
+        role: 'STUDENT',
+        studentId: null,
+        email: normalizedEmail,
+      });
+    }
     const newPassword = password ? String(password) : '';
 
     if (newPassword && newPassword.length < 6) {
@@ -289,6 +296,7 @@ export const updateStudent = async (req: AuthRequest, res: Response): Promise<vo
     if (req.user!.role === 'ADMIN' && studentAccount) {
       studentAccount.fullName = student.displayName || `${student.firstName} ${student.lastName}`;
       studentAccount.email = normalizedEmail;
+      studentAccount.studentId = student._id;
       if (newPassword) studentAccount.passwordHash = await bcrypt.hash(newPassword, 10);
       await studentAccount.save();
     } else if (req.user!.role === 'ADMIN' && newPassword) {

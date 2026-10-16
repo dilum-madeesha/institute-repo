@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { User } from '../models/User';
+import { User, normalizeAccountStatus, normalizeUserRole } from '../models/User';
 import { Student } from '../models/Student';
 import { Guardian } from '../models/Guardian';
 import { ENV } from '../config/env';
@@ -17,21 +17,26 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findOne({ email: normalizedEmail });
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const escapedEmail = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matchingUsers = await User.find({
+      email: { $regex: `^${escapedEmail}$`, $options: 'i' },
+    }).limit(2);
+    const user = matchingUsers.length === 1 ? matchingUsers[0] : null;
 
     if (!user) {
       await logAudit({
         action: 'LOGIN_FAILED',
         entityType: 'User',
-        details: { email: normalizedEmail, reason: 'User not found' },
+        details: { email: normalizedEmail, reason: 'User not found or email is ambiguous' },
         ipAddress: req.ip,
       });
       res.status(401).json({ error: 'Invalid email or password.' });
       return;
     }
 
-    if (user.status !== 'ACTIVE') {
+    const normalizedStatus = normalizeAccountStatus(user.status);
+    if (normalizedStatus !== 'ACTIVE') {
       await logAudit({
         userId: user._id,
         action: 'LOGIN_BLOCKED',
@@ -42,6 +47,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       });
       res.status(403).json({ error: 'Your account is deactivated. Please contact an administrator.' });
       return;
+    }
+
+    user.status = normalizedStatus;
+    const normalizedRole = normalizeUserRole(user.role);
+    if (!normalizedRole) {
+      res.status(403).json({ error: 'This account has an unsupported role. Please contact an administrator.' });
+      return;
+    }
+    if (user.role !== normalizedRole) {
+      user.role = normalizedRole;
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);

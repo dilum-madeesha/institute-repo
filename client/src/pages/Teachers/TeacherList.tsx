@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Search, Plus, Mail, Phone, School, BookOpen, UserCheck, ShieldCheck, Trash2, Pencil } from 'lucide-react';
-import api from '../../api/client';
+import * as apiService from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { User, ClassItem } from '../../types';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -29,8 +29,8 @@ export const TeacherList: React.FC = () => {
     try {
       setLoading(true);
       const [teachersRes, classesRes] = await Promise.all([
-        api.get('/users?role=TEACHER'),
-        api.get('/classes?status=ACTIVE'),
+        apiService.getTeachers(),
+        apiService.getClasses({ status: 'ACTIVE' }),
       ]);
       setTeachers(teachersRes.data);
       setClasses(classesRes.data);
@@ -52,13 +52,13 @@ export const TeacherList: React.FC = () => {
 
     try {
       if (editingTeacher) {
-        await api.patch(`/users/${editingTeacher._id || editingTeacher.id}`, {
+        await apiService.updateTeacher((editingTeacher._id || editingTeacher.id)!, {
           fullName,
           email,
           ...(password ? { password } : {}),
         });
       } else {
-        await api.post('/users', {
+        await apiService.createTeacher({
           fullName,
           email,
           password,
@@ -114,7 +114,7 @@ export const TeacherList: React.FC = () => {
     setDeleteError('');
     setDeletingTeacherId(teacherId);
     try {
-      await api.delete(`/users/${teacherId}`);
+      await apiService.deleteTeacher(teacherId);
       setTeachers((currentTeachers) =>
         currentTeachers.filter((currentTeacher) => (currentTeacher._id || currentTeacher.id) !== teacherId)
       );
