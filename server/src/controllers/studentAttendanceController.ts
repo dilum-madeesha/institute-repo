@@ -118,7 +118,10 @@ export const checkInStudentAttendance = async (req: AuthRequest, res: Response):
     const now = new Date();
     const enrollment = await Enrollment.findOne(currentEnrollmentFilter(user.studentId, session.classId));
     if (!enrollment) {
-      res.status(403).json({ error: 'You are not actively enrolled in this class.' });
+      res.status(403).json({
+        error: 'You are not actively enrolled in this class.',
+        code: 'STUDENT_NOT_ENROLLED',
+      });
       return;
     }
 

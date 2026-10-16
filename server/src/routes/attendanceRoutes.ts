@@ -11,17 +11,13 @@ import { requireTeacherOrAdmin } from '../middleware/role';
 
 const router = Router();
 
-router.use(authenticate, requireTeacherOrAdmin);
-
-
-
 // Sessions endpoints
-router.get('/sessions/:sessionId/attendance', getSessionAttendance);
-router.put('/sessions/:sessionId/attendance', saveDraftAttendance);
-router.post('/sessions/:sessionId/submit', submitAttendance);
+router.get('/sessions/:sessionId/attendance', authenticate, requireTeacherOrAdmin, getSessionAttendance);
+router.put('/sessions/:sessionId/attendance', authenticate, requireTeacherOrAdmin, saveDraftAttendance);
+router.post('/sessions/:sessionId/submit', authenticate, requireTeacherOrAdmin, submitAttendance);
 
 // Single record correction endpoints
-router.patch('/attendance/:attendanceId', correctAttendanceRecord);
-router.get('/attendance/:attendanceId/logs', getRecordChangeLogs);
+router.patch('/attendance/:attendanceId', authenticate, requireTeacherOrAdmin, correctAttendanceRecord);
+router.get('/attendance/:attendanceId/logs', authenticate, requireTeacherOrAdmin, getRecordChangeLogs);
 
 export default router;

@@ -84,9 +84,14 @@ export const ClassDetail: React.FC = () => {
   const fetchClassDetails = async () => {
     try {
       setLoading(true);
+      const sessionsRequest =
+        isAdmin || isTeacher
+          ? apiService.getClassSessions(id!)
+          : Promise.resolve({ data: [] as ClassSession[] });
+
       const [classRes, sessionsRes, lessonsRes, asgRes, examsRes] = await Promise.all([
         apiService.getClass(id!),
-        apiService.getClassSessions(id!),
+        sessionsRequest,
         apiService.getClassLessons(id!),
         apiService.getClassAssignments(id!),
         apiService.getClassExams(id!),
@@ -111,7 +116,7 @@ export const ClassDetail: React.FC = () => {
 
   useEffect(() => {
     fetchClassDetails();
-  }, [id]);
+  }, [id, isAdmin, isTeacher]);
 
   // Lesson handlers
   const handleCreateLesson = async (e: React.FormEvent) => {

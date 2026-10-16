@@ -106,7 +106,10 @@ const checkInStudentAttendance = async (req, res) => {
         const now = new Date();
         const enrollment = await Enrollment_1.Enrollment.findOne((0, enrollmentAccess_1.currentEnrollmentFilter)(user.studentId, session.classId));
         if (!enrollment) {
-            res.status(403).json({ error: 'You are not actively enrolled in this class.' });
+            res.status(403).json({
+                error: 'You are not actively enrolled in this class.',
+                code: 'STUDENT_NOT_ENROLLED',
+            });
             return;
         }
         const windowState = (0, attendanceWindow_1.getAttendanceWindowState)(session);

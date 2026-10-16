@@ -40,11 +40,15 @@ const authenticate = async (req, res, next) => {
         user.status = normalizedStatus;
         if (user.role === 'STUDENT') {
             try {
-                const linkedStudentExists = user.studentId
-                    ? await Student_1.Student.exists({ _id: user.studentId })
+                const normalizedEmail = user.email.trim().toLowerCase();
+                const linkedStudent = user.studentId
+                    ? await Student_1.Student.findById(user.studentId).select('_id email status')
                     : null;
-                if (!user.studentId || !linkedStudentExists) {
-                    const normalizedEmail = user.email.trim().toLowerCase();
+                const linkedEmail = linkedStudent?.email?.trim().toLowerCase();
+                const linkMatchesLogin = Boolean(linkedStudent &&
+                    String(linkedStudent.status).toUpperCase() === 'ACTIVE' &&
+                    (!linkedEmail || linkedEmail === normalizedEmail));
+                if (!linkMatchesLogin) {
                     const matchingStudents = await Student_1.Student.find({
                         email: { $regex: `^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
                         status: /^ACTIVE$/i,
@@ -60,7 +64,6 @@ const authenticate = async (req, res, next) => {
                         });
                         if (!alreadyLinkedAccount) {
                             user.studentId = studentId;
-                            await user.save();
                         }
                     }
                 }

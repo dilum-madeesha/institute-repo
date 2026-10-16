@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import { ENV } from '../config/env';
 import { User, IUser, normalizeAccountStatus, normalizeUserRole } from '../models/User';
 import { Student } from '../models/Student';
-import { currentEnrollmentFilter } from '../services/enrollmentAccess';
 
 export interface AuthRequest extends Request {
   user?: IUser;
@@ -52,11 +51,18 @@ export const authenticate = async (
 
     if (user.role === 'STUDENT') {
       try {
-        const linkedStudentExists = user.studentId
-          ? await Student.exists({ _id: user.studentId })
+        const normalizedEmail = user.email.trim().toLowerCase();
+        const linkedStudent = user.studentId
+          ? await Student.findById(user.studentId).select('_id email status')
           : null;
-        if (!user.studentId || !linkedStudentExists) {
-          const normalizedEmail = user.email.trim().toLowerCase();
+        const linkedEmail = linkedStudent?.email?.trim().toLowerCase();
+        const linkMatchesLogin = Boolean(
+          linkedStudent &&
+          String(linkedStudent.status).toUpperCase() === 'ACTIVE' &&
+          (!linkedEmail || linkedEmail === normalizedEmail)
+        );
+
+        if (!linkMatchesLogin) {
           const matchingStudents = await Student.find({
             email: { $regex: `^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
             status: /^ACTIVE$/i,
@@ -73,7 +79,6 @@ export const authenticate = async (
             });
             if (!alreadyLinkedAccount) {
               user.studentId = studentId;
-              await user.save();
             }
           }
         }

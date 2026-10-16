@@ -223,7 +223,18 @@ const getAssignmentsByClass = async (req, res) => {
         const user = req.user;
         const hasAccess = await (0, role_1.canAccessClass)(user._id.toString(), user.role, classId, user.studentId?.toString(), user.guardianId?.toString());
         if (!hasAccess) {
-            res.status(403).json({ error: 'Access denied.' });
+            res.status(403).json({
+                error: user.role === 'STUDENT'
+                    ? !user.studentId
+                        ? 'This student login is not linked to a student profile.'
+                        : 'You are not actively enrolled in this class.'
+                    : 'Access denied.',
+                code: user.role === 'STUDENT'
+                    ? !user.studentId
+                        ? 'STUDENT_PROFILE_NOT_LINKED'
+                        : 'STUDENT_NOT_ENROLLED'
+                    : 'CLASS_ACCESS_DENIED',
+            });
             return;
         }
         const assignments = await Assignment_1.Assignment.find({ classId }).sort({ dueDate: 1 }).populate('createdBy', 'fullName');

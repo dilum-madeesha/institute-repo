@@ -14,7 +14,11 @@ const currentEnrollmentFilter = (studentId, classId, now = new Date()) => ({
             ],
         },
         {
-            $or: [{ endDate: null }, { endDate: { $gte: now } }],
+            $or: [
+                { endDate: { $exists: false } },
+                { endDate: null },
+                { endDate: { $gte: now } },
+            ],
         },
     ],
 });

@@ -17,7 +17,11 @@ export const currentEnrollmentFilter = (
       ],
     },
     {
-      $or: [{ endDate: null }, { endDate: { $gte: now } }],
+      $or: [
+        { endDate: { $exists: false } },
+        { endDate: null },
+        { endDate: { $gte: now } },
+      ],
     },
   ],
 });
